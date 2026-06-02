@@ -1,0 +1,7 @@
+<class_libraries>
+	<library path="motion_control_plugins">
+		<class type="bumperbot_motion::PDPurePursuitPlugin" base_class_type="nav2_core::Controller">
+		  <description>PD/Pure-Pursuit hybrid forward-motion trajectory follower.</description>
+		</class>
+	</library>
+</class_libraries>
