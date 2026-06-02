@@ -18,34 +18,8 @@ find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
-# 1. Try finding libserial via PkgConfig first (usually works on Host/Ubuntu)
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(SERIAL QUIET IMPORTED_TARGET libserial)
-endif()
-
-# 2. If PkgConfig failed (like in Yocto), search manually for headers and library
-if(NOT SERIAL_FOUND)
-    message(STATUS "libserial metadata not found, searching manually...")
-    find_path(SERIAL_INCLUDE_DIRS NAMES libserial/SerialPort.h)
-    find_library(SERIAL_LIBRARIES NAMES serial)
-
-    if(SERIAL_INCLUDE_DIRS AND SERIAL_LIBRARIES)
-        set(SERIAL_FOUND TRUE)
-        # Create the same Imported Target that PkgConfig would have created
-        if(NOT TARGET PkgConfig::SERIAL)
-            add_library(PkgConfig::SERIAL INTERFACE IMPORTED)
-            set_target_properties(PkgConfig::SERIAL PROPERTIES
-                INTERFACE_INCLUDE_DIRECTORIES "${SERIAL_INCLUDE_DIRS}"
-                INTERFACE_LINK_LIBRARIES "${SERIAL_LIBRARIES}"
-            )
-        endif()
-    endif()
-endif()
-
-if(NOT TARGET PkgConfig::SERIAL)
-  message(FATAL_ERROR "libserial not found! (Tried PkgConfig and manual search)")
-endif()
+# find libserial for host and yocto environments
+include(find_libserial.cmake)
 
 ament_python_install_package(${PROJECT_NAME})
 
@@ -57,7 +31,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
   arduino/diff_drive_controller/protocol
   "${SERIAL_INCLUDE_DIRS}"
 )
-target_link_libraries(${PROJECT_NAME} PkgConfig::SERIAL)
+target_link_libraries(${PROJECT_NAME} LibSerial::LibSerial)
 ament_target_dependencies(${PROJECT_NAME}
   hardware_interface
   pluginlib
