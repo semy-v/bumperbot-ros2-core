@@ -1,3 +1,35 @@
+/**
+ * @file diff_drive_interface.cpp
+ *
+ * SERIAL COMMUNICATION PROTOCOL SEQUENCE (ROS 2 PERSPECTIVE)
+ * ----------------------------------------------------------
+ * This hardware interface acts as the "Master" in the communication protocol. 
+ * It drives the state machine transitions and pushes real-time commands to the microcontroller.
+ *
+ * 1. STARTUP & HANDSHAKE (on_configure)
+ * - Opens the serial port and waits 200ms to ensure the Arduino bootloader finishes.
+ * - Sends a `Config` message containing PID parameters and deadband limits.
+ * - Blocks and waits for the Arduino to echo the exact same `Config` message back.
+ * - Validates the echoed message to guarantee the MCU is running the correct parameters.
+ *
+ * 2. ACTIVATION (on_activate)
+ * - Sends an initial `Velocity` command of {0.0, 0.0} to instruct the Arduino to
+ * energize the motor drivers (activate torque).
+ * - Blocks and waits for the Arduino to reply with its current zeroed `Velocity` state.
+ *
+ * 3. REAL-TIME LOOP (read / write)
+ * - `read()`: Pulls asynchronous `Velocity` responses from the serial buffer. These
+ * responses are the physical feedback triggered by the *previous* cycle's write() command. 
+ * It integrates this velocity over the loop period (dt) to calculate odometry/position.
+ * - `write()`: Pushes the new target `Velocity` to the Arduino. This acts as a continuous
+ * heartbeat. If the Arduino does not receive this, it will trigger an emergency stop.
+ *
+ * 4. DEACTIVATION & CLEANUP (on_deactivate / on_cleanup / on_shutdown)
+ * - Sends a `Deactivate` message commanding the MCU to drop motor torque.
+ * - Blocks and waits for the Arduino to echo the `Deactivate` message as confirmation.
+ * - Safely closes the serial port connection.
+ */
+
 #include "bumperbot_firmware/diff_drive/diff_drive_interface.hpp"
 
 #include <algorithm>

@@ -5,6 +5,7 @@
 #include "diff_drive_data.hpp"
 #include "diff_drive_message_traits.hpp"
 
+// Unique identifiers for every valid command over the wire.
 enum class MsgId : uint8_t {
     Config,
     Velocity,
@@ -16,6 +17,7 @@ using ConfigMsg     = MessageDef<MsgId::Config, ConfigData>;
 using VelocityMsg   = MessageDef<MsgId::Velocity, VelocityData>;
 using DeactivateMsg = MessageDef<MsgId::Deactivate, void>; // zero-payload
 
+// Single source of truth containing all valid protocol definitions.
 using DiffDriveMessageRegistry = MessageRegistry<
     ConfigMsg,
     VelocityMsg,
