@@ -1,0 +1,21 @@
+[Unit]
+Description=Bumperbot wheels + IMU odometry EKF localization
+PartOf=bumperbot.target
+After=bumperbot_controller.service imu.service
+BindsTo=bumperbot_controller.service
+Wants=imu.service
+StartLimitIntervalSec=20
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/run/bumperbot.env
+ExecStartPre=/opt/ros/jazzy/share/bumperbot_bringup/scripts/env_setup.sh
+ExecStart=/opt/ros/jazzy/bin/ros2 launch bumperbot_localization local_localization.launch.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+RequiredBy=bumperbot.target
