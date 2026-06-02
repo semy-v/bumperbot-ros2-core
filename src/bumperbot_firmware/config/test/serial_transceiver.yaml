@@ -1,0 +1,11 @@
+serial_transceiver:
+  ros__parameters:
+    pid_rate: 50.0
+    r_wheel_kp: 15.5
+    r_wheel_ki: 39.0
+    r_wheel_kd: 0.0
+    r_wheel_deadband: 17
+    l_wheel_kp: 14.0
+    l_wheel_ki: 43.0
+    l_wheel_kd: 0.0
+    l_wheel_deadband: 18
