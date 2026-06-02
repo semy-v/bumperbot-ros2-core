@@ -7,6 +7,8 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 
+include_directories(include)
+
 install(
   DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
