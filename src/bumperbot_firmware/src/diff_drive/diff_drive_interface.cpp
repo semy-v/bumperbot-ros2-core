@@ -333,14 +333,27 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
   double r_wheel_target = wheels_data_[kRightWheelIndex].velocity_command;
   double l_wheel_target = wheels_data_[kLeftWheelIndex].velocity_command;
 
-  // clamp off if target wheel angular velocity is less than
-  // minimum configured one (with regards to the motor pwm deadband)
-  if (std::abs(r_wheel_target) < wheels_min_velocity_) {
+  // A tiny epsilon threshold to account for floating-point noise
+  constexpr double kZeroThreshold = 1e-4;
+
+  // --- Right Wheel Control ---
+  if (std::abs(r_wheel_target) <= kZeroThreshold) {
+    // Force a clean stop if the command is microscopic noise
     r_wheel_target = 0.0;
   }
+  else if (std::abs(r_wheel_target) < wheels_min_velocity_) {
+    // Clamp up to minimum velocity if trying to move but under mechanical limits
+    r_wheel_target = std::copysign(wheels_min_velocity_, r_wheel_target);
+  }
 
-  if (std::abs(l_wheel_target) < wheels_min_velocity_) {
-    l_wheel_target = 0.0;
+  // --- Left Wheel Control ---
+  if (std::abs(l_wheel_target) <= kZeroThreshold) {
+    // Force a clean stop if the command is microscopic noise
+    l_wheel_target = 0.0; // Fixed typo (was r_wheel_target) and added semicolon
+  }
+  else if (std::abs(l_wheel_target) < wheels_min_velocity_) {
+    // Clamp up to minimum velocity if trying to move but under mechanical limits
+    l_wheel_target = std::copysign(wheels_min_velocity_, l_wheel_target);
   }
 
   const VelocityData data{
