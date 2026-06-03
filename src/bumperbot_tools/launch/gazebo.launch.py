@@ -1,11 +1,3 @@
-# Copyright (c) Antonio Brandi
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-#
-# Notice: This file has been modified from the original work by Antonio Brandi.
-# Changes: Reusage of a standalone robot_state_publisher launch description.
-
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import SetEnvironmentVariable, IncludeLaunchDescription
