@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
-source /opt/ros/jazzy/setup.bash
+. /opt/ros/jazzy/setup.sh
 env > /run/bumperbot.env
