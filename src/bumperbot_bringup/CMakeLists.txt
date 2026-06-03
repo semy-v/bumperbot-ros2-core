@@ -8,8 +8,17 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY systemd launch scripts
+  DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY scripts
+  DESTINATION share/${PROJECT_NAME}
+  FILE_PERMISSIONS 
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE 
+    GROUP_READ 
+    WORLD_READ
 )
 
 ament_package()
