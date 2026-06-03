@@ -20,8 +20,6 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
-# ament_python_install_package(${PROJECT_NAME})
-
 include_directories(include)
 
 set(dependencies
