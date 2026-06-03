@@ -22,19 +22,11 @@ def generate_launch_description():
         )
     )
 
-    diff_drive_controller = IncludeLaunchDescription(
+    controllers = IncludeLaunchDescription(
         os.path.join(
             get_package_share_directory("bumperbot_controller"),
             "launch",
-            "diff_drive_controller.launch.py"
-        )
-    )
-    
-    joint_state_broadcaster = IncludeLaunchDescription(
-        os.path.join(
-            get_package_share_directory("bumperbot_controller"),
-            "launch",
-            "joint_state_broadcaster.launch.py"
+            "controllers.launch.py"
         )
     )
 
@@ -65,8 +57,7 @@ def generate_launch_description():
     return LaunchDescription([
         controller_manager,
         imu,
-        diff_drive_controller,
-        joint_state_broadcaster,
+        controllers,
         localization,
         motion,
         joystick,

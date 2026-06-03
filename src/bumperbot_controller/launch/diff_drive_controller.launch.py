@@ -15,7 +15,7 @@ def generate_launch_description():
         "bumperbot_controllers.yaml",
     )
 
-    bumperbot_controller_spawner = Node(
+    diff_drive_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
         arguments=["diff_drive_controller", "--param-file", bumperbot_controllers],
@@ -27,9 +27,9 @@ def generate_launch_description():
 
     exit_handler = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=bumperbot_controller_spawner,
+            target_action=diff_drive_controller_spawner,
             on_exit=propagate_exit_code
         )
     )
 
-    return LaunchDescription([bumperbot_controller_spawner, exit_handler])
+    return LaunchDescription([diff_drive_controller_spawner, exit_handler])
