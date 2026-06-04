@@ -25,7 +25,7 @@ auto MotionControlServer::on_configure(const rclcpp_lifecycle::State &) -> Callb
     std::bind(&MotionControlServer::controlLoop, this));
   control_timer_->cancel();  // control loop started at action accept 
 
-  declare_parameter("cmd_velocity_topic", "/bumperbot_controller/cmd_vel");
+  declare_parameter("cmd_velocity_topic", "/diff_drive_controller/cmd_vel");
   const std::string cmd_velocity_topic = get_parameter("cmd_velocity_topic").as_string();
   vel_publisher_ = create_publisher<geometry_msgs::msg::TwistStamped>(cmd_velocity_topic, 10);
 
