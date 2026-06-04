@@ -3,7 +3,7 @@
 <package format="3">
   <name>bumperbot_description</name>
   <version>0.0.0</version>
-  <description>Bumperbot Description package. Modified from original work by Antonio Brandi (antonio.brandi@outlook.it)</description>
+  <description>Bumperbot URDF model description package</description>
   <maintainer email="myronov.sergii@gmail.com">Sergii Myronov</maintainer>
   <license>Apache-2.0</license>
 

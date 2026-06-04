@@ -5,7 +5,7 @@
   <version>0.0.0</version>
   <description>Bumperbot bringup package</description>
   <maintainer email="myronov.sergii@gmail.com">Sergii Myronov</maintainer>
-  <license>MIT</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

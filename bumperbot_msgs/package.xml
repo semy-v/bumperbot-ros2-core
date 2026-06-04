@@ -3,9 +3,9 @@
 <package format="3">
   <name>bumperbot_msgs</name>
   <version>0.1.0</version>
-  <description>Custom ROS2 messages for Bumperbot</description>
+  <description>Bumperbot custom messages package</description>
   <maintainer email="myronov.sergii@gmail.com">Sergii Myronov</maintainer>
-  <license>MIT</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

@@ -3,9 +3,9 @@
 <package format="3">
   <name>bumperbot_controller</name>
   <version>0.0.0</version>
-  <description>Bumperbot controllers and joystick teleoperation</description>
+  <description>Bumperbot controllers and teleoperation package</description>
   <maintainer email="myronov.sergii@gmail.com">Sergii Myronov</maintainer>
-  <license>MIT</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
