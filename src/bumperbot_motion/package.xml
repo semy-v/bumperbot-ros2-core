@@ -23,7 +23,6 @@
 
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>tf_transformations</exec_depend>
-  <exec_depend>nav2-core</exec_depend>
   <exec_depend>bumperbot_localization</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
