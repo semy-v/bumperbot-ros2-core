@@ -1,111 +1,133 @@
 # Bumperbot ROS 2 Core Stack
 
-A production-grade ROS 2 software stack for **BumperBot**, an open-source, 3D-printed autonomous differential-drive robot.
+**ROS 2 software stack for **BumperBot**, an open-source, 3D-printed autonomous differential-drive mobile robot.
 
-This repository contains the robot application layer, motion-control framework, hardware interfaces, and system integration components required to operate both the physical robot and its simulation environment. The software was developed from the ground up using modern C++20 and ROS 2 Jazzy, with a focus on modular architecture, hardware deployment, and real-time control.
+BumperBot is a complete, hardware-proven robotics platform built with modern C++20 and ROS 2 Jazzy. It features a modular architecture covering hardware abstraction, real-time control, localization, motion planning, and simulation — ready for both simulation and physical deployment on a Raspberry Pi 5 + Arduino Nano setup.
 
 > **⚙️ Companion OS Repository** > This software stack is designed to be deployed natively onto a custom embedded Linux image. The Yocto Project configuration and board support package (BSP) used to build the OS for this robot can be found in the companion repository: **[meta-bumperbot](https://github.com/semy-v/meta-bumperbot)**.
 
 ---
 
-## 📦 Packages Overview
-* **bumperbot_bringup:** Top-level launch package for starting the complete robot stack in either hardware or simulation environments.
+## ✨ Features
 
-* **bumperbot_firmware:** Custom hardware interfaces bridging the ROS 2 control loop with the Arduino-based physical motor drivers and encoders using serial communication. Also includes the I2C IMU drivers.
+- **Full ROS 2 Jazzy** integration with hardware and simulation support
+- **Custom differential-drive motion control** with Nav2-compatible `FollowPath` action server and plugin-based PD Pure Pursuit controller
+- **High-performance hardware interface** using a custom binary serial protocol between Raspberry Pi and Arduino
+- **Sensor fusion** via EKF (wheel odometry + MPU6050 IMU)
+- **ROS 2 Control** integration with velocity commands, joint states, and joystick teleoperation
+- **Production-ready deployment** on a custom Yocto Linux image
+- **Comprehensive Gazebo simulation** environment
+- **Modern C++20** with strong typing, concepts, and clean modular architecture
 
-* **bumperbot_motion:** Custom ROS 2 motion-control framework featuring a Nav2-compatible FollowPath action server and plugin-based PD Pure Pursuit controller which computes and sends linear and angular velocity commands for differential-drive robot.
+## 📦 Packages
 
-* **bumperbot_controller:** ROS 2 Control configuration package for differential-drive control, odometry generation, wheel-state publishing, and joystick teleoperation.
-
-* **bumperbot_localization:** EKF-based localization package that fuses wheel odometry and IMU data to provide filtered robot state estimation and pose tracking.
-
-* **bumperbot_description:** Robot description package containing the URDF/Xacro models, meshes, kinematic structure, and simulation definitions.
-
-* **bumperbot_msgs:** Custom ROS 2 message definitions used throughout the BumperBot software stack.
-
-* **bumperbot_tools:** Development utilities for RViz visualization, Gazebo simulation, robot spawning, and ROS–Gazebo integration.
+| Package                    | Purpose |
+|---------------------------|--------|
+| **bumperbot_bringup**     | Top-level launch files for simulation and real robot |
+| **bumperbot_firmware**    | Arduino firmware, ROS 2 serial transceiver, IMU driver, and custom binary protocol |
+| **bumperbot_motion**      | Custom motion control framework with PD Pure Pursuit plugin |
+| **bumperbot_controller**  | ROS 2 Control configuration and teleoperation |
+| **bumperbot_localization**| EKF-based state estimation |
+| **bumperbot_description** | URDF/Xacro models, meshes, and Gazebo configuration |
+| **bumperbot_msgs**        | Custom message definitions |
+| **bumperbot_tools**       | RViz configurations, Gazebo utilities, and visualization helpers |
 
 ## 🤖 Hardware Architecture
 
 Unlike simulation-only projects, this stack is actively deployed and proven on a custom physical hardware setup. The architecture utilizes the following components:
 
 * **Main Compute:** Raspberry Pi 5
-* **Low-Level Microcontroller:** Arduino Nano (handles high-frequency quadrature encoder reading and closed-loop motor PID control)
-* **Actuation:** DC Motors driven by an L298N dual H-bridge motor driver
-* **Sensors:** MPU6050 IMU (I2C) for orientation and acceleration tracking
-* **Interface:** A custom binary serial protocol bridges the ROS 2 `diff_drive_interface` running on the Pi with the Arduino firmware.
+* **Low-Level Controller:** Arduino Nano (quadrature encoders + closed-loop motor PID)
+* **Actuators:** DC motors with L298N H-bridge
+* **Sensors:** MPU6050 IMU (I2C)
+* **Interface:** Custom high-frequency binary serial protocol
 
 ---
 
-## 🛠️ Installation & Build
+## 🚀 Quick Start
 
-### Prerequisite: Install ROS 2 Jazzy
-Before setting up this workspace, ensure you have a working installation of ROS 2 Jazzy Jalisco on your development machine. 
-* Official Installation Guide: [Install ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation.html)
+### 1. Prerequisites
 
-### Setup the Workspace
-Clone this repository into the `src` directory of your ROS 2 workspace.
+- ROS 2 Jazzy Jalisco ([Installation](https://docs.ros.org/en/jazzy/Installation.html))
+- Ubuntu 24.04 (recommended)
 
-### Install Dependencies
-Install all necessary ROS 2 package dependencies automatically using the `rosdep` tool:
+### 2. Setup Workspace
+
 ```bash
+# Create workspace
+mkdir -p ~/bumperbot_ws/src
+cd ~/bumperbot_ws/src
+
+# Clone the repository
+
+git clone https://github.com/semy-v/bumperbot-ros2-core.git
+
+# Install dependencies
+cd ..
 rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
 ```
 
-### Build the Workspace
+### 3. Build
+
 ```bash
 . /opt/ros/jazzy/setup.bash
 colcon build
 ```
 
-## 🚀 Running the Robot
+---
 
-### Simulation (Gazebo)
+## 🎮 Running the Robot
 
-To validate the robot model, controllers, localization, and motion-control stack without physical hardware, launch the complete simulation environment:
+### Simulation (Recommended for Development)
 
 ```bash
 source install/setup.bash
-
 ros2 launch bumperbot_bringup simulated_robot.launch.py
 ```
 
-This launches the robot in Gazebo and starts the required ROS 2 nodes for simulation, control, localization, and visualization.
+This launches:
+
+- Gazebo simulation
+- RViz visualization
+- ROS 2 controllers
+- Localization stack
+- Motion control server
+
+### Real Hardware
+
+#### 1. Flash Arduino Firmware
+
+Open and upload the following sketch to the Arduino Nano:
+
+```text
+bumperbot_firmware/arduino/diff_drive_controller/diff_drive_controller.ino
+```
+
+#### 2. Deploy Operating System
+
+Build and flash the custom Yocto image from the **[meta-bumperbot](https://github.com/semy-v/meta-bumperbot)** repository.
+
+#### 3. Launch on the Robot
+
+Power on the robot. The system will boot, connect to the configured Wi-Fi network, and start the bumperbot packages as systemd services autonomously.
 
 ---
 
-### Real Hardware Deployment
+## 🧪 Development & Testing
 
-Deploying BumperBot on physical hardware consists of programming the microcontroller and installing the operating system on the Raspberry Pi.
-
-#### 1. Flash the Arduino Firmware
-
-Compile and upload the custom firmware to the Arduino Nano responsible for wheel encoder processing and low-level motor control.
-
-Firmware location:
-
-```text
-src/bumperbot_firmware/arduino/diff_drive_controller/diff_drive_controller.ino
-```
-
-#### 2. Install the Raspberry Pi OS Image
-
-The ROS 2 application stack is designed to run natively on a custom Yocto Linux image built using the companion **meta-bumperbot** repository.
-
-Build the image using the Yocto configuration provided in:
-
-```text
-https://github.com/semy-v/meta-bumperbot
-```
-
-Flash the generated image to the Raspberry Pi 5 and connect the robot hardware.
+- Individual launch files are available in each package for isolated testing.
+- Firmware includes utilities for serial communication validation and PID tuning.
+- `bumperbot_tools` provides resources for RViz and Gazebo development workflows.
+- Components can be developed and tested independently using ROS 2 launch files and lifecycle-managed nodes.
 
 ---
 
 ## 🙏 Acknowledgements
 
-The BumperBot platform was inspired by the course **[Self Driving and ROS 2 – Learn by Doing! Odometry & Control](https://www.udemy.com/course/self-driving-and-ros-2-learn-by-doing-odometry-control/)** by **Antonio Brandi**.
+This project was heavily inspired by the outstanding course:
 
-This repository is an independent personal project and is not a fork of the course codebase. While the overall robot concept and portions of the mechanical/URDF design were inspired by the course, the software implementation contained in this repository—including the hardware interfaces, communication protocols, motion-control framework, localization stack, controller integration, build system, deployment infrastructure—was developed independently from scratch.
+**[Self Driving and ROS 2 – Learn by Doing! Odometry & Control](https://www.udemy.com/course/self-driving-and-ros-2-learn-by-doing-odometry-control/)** by **Antonio Brandi**.
 
-Special thanks to Antonio Brandi for providing an excellent foundation for exploring ROS 2 robotics and autonomous mobile robot development.
+While the overall robot concept and some mechanical/URDF design elements were influenced by the course, **this repository is an independent implementation** developed from scratch. The entire software stack — including hardware interfaces, custom binary communication protocol, motion control framework, localization system, ROS 2 Control integration, and Yocto-based embedded Linux deployment — was designed and written independently.
+
+Special thanks to Antonio Brandi for creating an excellent hands-on course that helped spark this project.
