@@ -25,6 +25,7 @@ ament_python_install_package(${PROJECT_NAME})
 
 add_library(${PROJECT_NAME} SHARED
   src/diff_drive/diff_drive_interface.cpp
+  src/diff_drive/binary_message_protocol.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
   include
