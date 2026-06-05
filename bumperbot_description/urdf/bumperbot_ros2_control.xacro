@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="bumperbot">
+
+    <ros2_control name="RobotSystem" type="system">
+        <!-- ros2_control Jazzy Gazebo -->
+        <xacro:if value="$(arg is_sim)">
+            <hardware>
+                <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+            </hardware>
+        </xacro:if>
+
+        <!-- ros2_control Real Robot -->
+        <xacro:unless value="$(arg is_sim)">
+            <hardware>
+                <plugin>bumperbot_firmware/DiffDriveInterface</plugin>
+                <param name="port">/dev/ttyUSB0</param>
+                <param name="wheels_min_velocity">0.8</param>
+                <param name="wheels_pid_rate">50</param>
+                <param name="wheel_right_kp">15.5</param>
+                <param name="wheel_right_ki">39.0</param>
+                <param name="wheel_right_kd">0.0</param>
+                <param name="wheel_right_pwm_deadband">17</param>
+                <param name="wheel_left_kp">14.0</param>
+                <param name="wheel_left_ki">43.0</param>
+                <param name="wheel_left_kd">0.0</param>
+                <param name="wheel_left_pwm_deadband">18</param>
+            </hardware>
+        </xacro:unless>
+
+        <!-- ros2_control Common Interfaces -->
+        <joint name="wheel_left_joint">
+            <command_interface name="velocity">
+              <param name="min">-1</param>
+              <param name="max">1</param>
+            </command_interface>
+            <state_interface name="position" />
+            <state_interface name="velocity" />
+        </joint>
+
+        <joint name="wheel_right_joint">
+            <command_interface name="velocity">
+              <param name="min">-1</param>
+              <param name="max">1</param>
+            </command_interface>
+            <state_interface name="position" />
+            <state_interface name="velocity" />
+        </joint>
+    </ros2_control>
+
+</robot>

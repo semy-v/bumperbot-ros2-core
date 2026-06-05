@@ -1,0 +1,10 @@
+<library path="bumperbot_firmware">
+  <class name="bumperbot_firmware/DiffDriveInterface"
+    type="bumperbot_firmware::DiffDriveInterface"
+    base_class_type="hardware_interface::SystemInterface"
+  >
+    <description>
+      Bumperbot differential drive hardware interface
+    </description>
+  </class>
+</library>

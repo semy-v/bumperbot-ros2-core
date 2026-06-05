@@ -1,0 +1,19 @@
+motion_control_server:
+  ros__parameters:
+    controller_frequency: 20.0
+    cmd_velocity_topic: "/diff_drive_controller/cmd_vel"
+
+    controller_plugin: "pd_pure_pursuit"
+
+    pd_pure_pursuit:
+      plugin: "bumperbot_motion::PDPurePursuitPlugin"
+
+      kp: 2.0
+      kd: 0.15
+
+      lookahead_distance: 0.2
+      max_linear_velocity: 0.35
+      max_angular_velocity: 1.0
+
+      near_goal_region: 0.2
+      near_goal_linear_velocity : 0.05

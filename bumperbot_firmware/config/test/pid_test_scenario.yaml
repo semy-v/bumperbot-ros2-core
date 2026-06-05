@@ -1,0 +1,68 @@
+# pid_test_scenario.yaml
+publish_rate: 100.0  # Defines how often (Hz) the current step velocities are emitted to the transceiver node
+
+steps:
+  # Step 1: Let the robot sit stationary for stabilization tracking
+  - right_wheel_velocity: 0.0
+    left_wheel_velocity: 0.0
+    duration: 2.0
+
+  # Step 2: Very low speed forward to check stability
+  - right_wheel_velocity: 0.8
+    left_wheel_velocity: 0.8
+    duration: 4.0
+
+  # Step 3: low-speed forward tracking behavior
+  - right_wheel_velocity: 2.0
+    left_wheel_velocity: 2.0
+    duration: 4.0
+
+  # Step 4: Fast linear burst forward to check overshoot behaviors
+  - right_wheel_velocity: 10.0
+    left_wheel_velocity: 10.0
+    duration: 3.0
+
+  # Step 5: Stationary break to study deceleration tracking/integral windup dump
+  - right_wheel_velocity: 0.0
+    left_wheel_velocity: 0.0
+    duration: 2.0
+
+  # Step 6: Fast linear burst backward to check overshoot behaviors
+  - right_wheel_velocity: -10.0
+    left_wheel_velocity: -10.0
+    duration: 3.0
+
+  # Step 7: low-speed backward tracking behavior
+  - right_wheel_velocity: -2.0
+    left_wheel_velocity: -2.0
+    duration: 4.0
+
+  # Step 8: Very low speed backward to check stability
+  - right_wheel_velocity: -0.8
+    left_wheel_velocity: -0.8
+    duration: 4.0
+
+  # Step 9: Stationary break to study deceleration tracking/integral windup dump
+  - right_wheel_velocity: 0.0
+    left_wheel_velocity: 0.0
+    duration: 2.0
+
+  # Step 10: High speed counter-rotation spin to evaluate matching differential wheel accuracy 
+  - right_wheel_velocity: -4.0
+    left_wheel_velocity: 4.0
+    duration: 3.0
+
+  # Step 11: High speed rotation spin to evaluate matching differential wheel accuracy 
+  - right_wheel_velocity: 4.0
+    left_wheel_velocity: -4.0
+    duration: 3.0
+
+  # Step 12: Very low speed counter-rotation spin to evaluate matching differential wheel accuracy 
+  - right_wheel_velocity: -1.5
+    left_wheel_velocity: 1.5
+    duration: 5.0
+
+  # Step 13: Very low speed rotation spin to evaluate matching differential wheel accuracy 
+  - right_wheel_velocity: 1.5
+    left_wheel_velocity: -1.5
+    duration: 5.0
