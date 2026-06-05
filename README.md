@@ -1,6 +1,6 @@
 # Bumperbot ROS 2 Core Stack
 
-**ROS 2 software stack for **BumperBot**, an open-source, 3D-printed autonomous differential-drive mobile robot.
+ROS 2 software stack for **BumperBot**, an open-source, 3D-printed autonomous differential-drive mobile robot.
 
 BumperBot is a complete, hardware-proven robotics platform built with modern C++20 and ROS 2 Jazzy. It features a modular architecture covering hardware abstraction, real-time control, localization, motion planning, and simulation — ready for both simulation and physical deployment on a Raspberry Pi 5 + Arduino Nano setup.
 
@@ -34,10 +34,8 @@ BumperBot is a complete, hardware-proven robotics platform built with modern C++
 
 ## 🤖 Hardware Architecture
 
-Unlike simulation-only projects, this stack is actively deployed and proven on a custom physical hardware setup. The architecture utilizes the following components:
-
 * **Main Compute:** Raspberry Pi 5
-* **Low-Level Controller:** Arduino Nano (quadrature encoders + closed-loop motor PID)
+* **Microcontroller:** Arduino Nano (quadrature encoders + closed-loop motor PID)
 * **Actuators:** DC motors with L298N H-bridge
 * **Sensors:** MPU6050 IMU (I2C)
 * **Interface:** Custom high-frequency binary serial protocol
