@@ -146,9 +146,9 @@ void setup() {
     g_left_wheel.begin();
 
     // right wheel encoder interrupt setup
-    attachInterrupt(digitalPinToInterrupt(RW_ENCODER_PHASE_A), rightWheelEncoderCallback, CHANGE);
+    attachInterrupt(RW_ENCODER_PHASE_A, rightWheelEncoderCallback, CHANGE);
     // left wheel encoder interrupt setup
-    attachInterrupt(digitalPinToInterrupt(LW_ENCODER_PHASE_A), leftWheelEncoderCallback, CHANGE);
+    attachInterrupt(LW_ENCODER_PHASE_A, leftWheelEncoderCallback, CHANGE);
 
     init_successful = true;
   }
@@ -294,10 +294,10 @@ void deactivate() {
   g_left_wheel.setActive(false);
 }
 
-void rightWheelEncoderCallback() {
+void ARDUINO_ISR_ATTR rightWheelEncoderCallback() {
   g_right_wheel.encoder().update();
 }
 
-void leftWheelEncoderCallback() {
+void ARDUINO_ISR_ATTR leftWheelEncoderCallback() {
   g_left_wheel.encoder().update();
 }
