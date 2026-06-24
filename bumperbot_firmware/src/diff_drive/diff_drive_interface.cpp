@@ -137,21 +137,21 @@ CallbackReturn DiffDriveInterface::on_init(
     info_.hardware_parameters, "port", "/dev/ttyACM0", logger);
   wheels_min_velocity_ = getHwParam<double>(
     info_.hardware_parameters, "wheels_min_velocity", 0.0, logger);
-  config_data_.pid_rate = getHwParam<float>(
+  config_data_.pid_rate = getHwParam<double>(
     info_.hardware_parameters, "wheels_pid_rate", 50.0, logger);
-  config_data_.r_wheel.kp = getHwParam<float>(
+  config_data_.r_wheel.kp = getHwParam<double>(
     info_.hardware_parameters, "wheel_right_kp", 15.5, logger);
-  config_data_.r_wheel.ki = getHwParam<float>(
+  config_data_.r_wheel.ki = getHwParam<double>(
     info_.hardware_parameters, "wheel_right_ki", 39.0, logger);
-  config_data_.r_wheel.kd = getHwParam<float>(
+  config_data_.r_wheel.kd = getHwParam<double>(
     info_.hardware_parameters, "wheel_right_kd", 0.0, logger);
   config_data_.r_wheel.pwm_deadband = getHwParam<int>(
     info_.hardware_parameters, "wheel_right_pwm_deadband", 17, logger);
-  config_data_.l_wheel.kp = getHwParam<float>(
+  config_data_.l_wheel.kp = getHwParam<double>(
     info_.hardware_parameters, "wheel_left_kp", 14.0, logger);
-  config_data_.l_wheel.ki = getHwParam<float>(
+  config_data_.l_wheel.ki = getHwParam<double>(
     info_.hardware_parameters, "wheel_left_ki", 43.0, logger);
-  config_data_.l_wheel.kd = getHwParam<float>(
+  config_data_.l_wheel.kd = getHwParam<double>(
     info_.hardware_parameters, "wheel_left_kd", 0.0, logger);
   config_data_.l_wheel.pwm_deadband = getHwParam<int>(
     info_.hardware_parameters, "wheel_left_pwm_deadband", 18, logger);
@@ -330,36 +330,33 @@ hardware_interface::return_type DiffDriveInterface::read(const rclcpp::Time &,
 hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
                                                           const rclcpp::Duration &)
 {
-  double r_wheel_target = wheels_data_[kRightWheelIndex].velocity_command;
-  double l_wheel_target = wheels_data_[kLeftWheelIndex].velocity_command;
+  VelocityData data{
+    .right_wheel_velocity = wheels_data_[kRightWheelIndex].velocity_command,
+    .left_wheel_velocity = wheels_data_[kLeftWheelIndex].velocity_command
+  };
 
   // A tiny epsilon threshold to account for floating-point noise
   constexpr double kZeroThreshold = 1e-4;
 
   // --- Right Wheel Control ---
-  if (std::abs(r_wheel_target) <= kZeroThreshold) {
+  if (std::abs(data.right_wheel_velocity) <= kZeroThreshold) {
     // Force a clean stop if the command is microscopic noise
-    r_wheel_target = 0.0;
+    data.right_wheel_velocity = 0.0;
   }
-  else if (std::abs(r_wheel_target) < wheels_min_velocity_) {
+  else if (std::abs(data.right_wheel_velocity) < wheels_min_velocity_) {
     // Clamp up to minimum velocity if trying to move but under mechanical limits
-    r_wheel_target = std::copysign(wheels_min_velocity_, r_wheel_target);
+    data.right_wheel_velocity = std::copysign(wheels_min_velocity_, data.right_wheel_velocity);
   }
 
   // --- Left Wheel Control ---
-  if (std::abs(l_wheel_target) <= kZeroThreshold) {
+  if (std::abs(data.left_wheel_velocity) <= kZeroThreshold) {
     // Force a clean stop if the command is microscopic noise
-    l_wheel_target = 0.0; // Fixed typo (was r_wheel_target) and added semicolon
+    data.left_wheel_velocity = 0.0;
   }
-  else if (std::abs(l_wheel_target) < wheels_min_velocity_) {
+  else if (std::abs(data.left_wheel_velocity) < wheels_min_velocity_) {
     // Clamp up to minimum velocity if trying to move but under mechanical limits
-    l_wheel_target = std::copysign(wheels_min_velocity_, l_wheel_target);
+    data.left_wheel_velocity = std::copysign(wheels_min_velocity_, data.left_wheel_velocity);
   }
-
-  const VelocityData data{
-    static_cast<float>(r_wheel_target),
-    static_cast<float>(l_wheel_target)
-  };
 
   transceiver_.writeMessage(data);
 

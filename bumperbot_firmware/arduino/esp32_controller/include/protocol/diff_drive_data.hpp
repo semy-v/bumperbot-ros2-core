@@ -5,9 +5,9 @@
 #pragma pack(push, 1)
 
 struct WheelConfig {
-    float kp;
-    float ki;
-    float kd;
+    double kp;
+    double ki;
+    double kd;
     uint8_t pwm_deadband;
 
 #if defined(__cpp_impl_three_way_comparison)
@@ -16,7 +16,7 @@ struct WheelConfig {
 };
 
 struct ConfigData {
-    float pid_rate;
+    double pid_rate;
     WheelConfig r_wheel;
     WheelConfig l_wheel;
 
@@ -27,15 +27,15 @@ struct ConfigData {
 };
 
 struct VelocityData {
-    float right_wheel_velocity;
-    float left_wheel_velocity;
+    double right_wheel_velocity;
+    double left_wheel_velocity;
 };
 
 #pragma pack(pop)
 
 
-static_assert(sizeof(ConfigData) == 30, "ConfigData size mismatch!");
-static_assert(sizeof(VelocityData) == 8, "VelocityData size mismatch!");
+static_assert(sizeof(ConfigData) == 58, "ConfigData size mismatch!");
+static_assert(sizeof(VelocityData) == 16, "VelocityData size mismatch!");
 
 
 #endif // DIFF_DRIVE_DATA_HPP
