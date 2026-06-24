@@ -35,13 +35,13 @@ class ConfigMsg:
     start_byte: int = START_BYTE
     msg_id: MsgId = MsgId.Config
 
-    # Header(4) + float(4) + 3*float(12) + uint8(1) + 3*float(12) + uint8(1) = 34 bytes total
-    STRUCT_FORMAT = "<BBBBffffBfffB"
+    # Header(4) + double(8) + 3*double(24) + uint8(1) + 3*double(24) + uint8(1) = 62 bytes total
+    STRUCT_FORMAT = "<BBBBddddBdddB"
     EXPECTED_SIZE = struct.calcsize(STRUCT_FORMAT)
 
     def serialize(self) -> bytes:
         payload = struct.pack(
-            "<ffffBfffB", 
+            "<ddddBdddB",
             self.pid_rate,
             self.r_wheel_kp, self.r_wheel_ki, self.r_wheel_kd, self.r_wheel_pwm_deadband,
             self.l_wheel_kp, self.l_wheel_ki, self.l_wheel_kd, self.l_wheel_pwm_deadband
@@ -77,12 +77,12 @@ class VelocityMsg:
     start_byte: int = START_BYTE
     msg_id: MsgId = MsgId.Velocity
 
-    # Header(4) + 2 floats(8) = 12 bytes total
-    STRUCT_FORMAT = "<BBBBff"
+    # Header(4) + 2 double(8) = 20 bytes total
+    STRUCT_FORMAT = "<BBBBdd"
     EXPECTED_SIZE = struct.calcsize(STRUCT_FORMAT)
 
     def serialize(self) -> bytes:
-        payload = struct.pack("<ff", self.right_wheel_velocity, self.left_wheel_velocity)
+        payload = struct.pack("<dd", self.right_wheel_velocity, self.left_wheel_velocity)
         header_no_crc = struct.pack("<BBB", self.start_byte, self.msg_id, len(payload))
         crc = calculate_lrc8(header_no_crc) ^ calculate_lrc8(payload)
         
@@ -116,6 +116,6 @@ class DeactivateMsg:
 
 
 # Sanity Checks matching C++ static_asserts
-assert ConfigMsg.EXPECTED_SIZE == 34, f"ConfigMsg format size must be 34 bytes! (Got {ConfigMsg.EXPECTED_SIZE})"
-assert VelocityMsg.EXPECTED_SIZE == 12, "VelocityMsg format size must be 12 bytes!"
+assert ConfigMsg.EXPECTED_SIZE == 62, f"ConfigMsg format size must be 66 bytes! (Got {ConfigMsg.EXPECTED_SIZE})"
+assert VelocityMsg.EXPECTED_SIZE == 20, "VelocityMsg format size must be 20 bytes!"
 assert DeactivateMsg.EXPECTED_SIZE == 4, "DeactivateMsg format size must be 4 bytes!"

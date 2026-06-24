@@ -1,5 +1,5 @@
 /**
- * @file diff_drive_controller.ino
+ * @file main.cpp
  *
  * SERIAL COMMUNICATION PROTOCOL SEQUENCE (ARDUINO PERSPECTIVE)
  * ------------------------------------------------------------
@@ -78,21 +78,21 @@ constexpr WheelConfig kDefaultLeftMotorConfig{
 
 // Initialize wheel controllers with defaults
 WheelController g_right_wheel{
-  .motor = L298NMotor{L298N_EN_A, L298N_IN_1, L298N_IN_2},
-  .encoder = QuadratureEncoder{RW_ENCODER_PHASE_A, RW_ENCODER_PHASE_B},
-  .pid_control_rate = kDefaultPidControlRate,
-  .wheel_config = kDefaultRightMotorConfig,
-  .ticks_per_rev = kPulsePerRevolution,
-  .invert_logic = false
+  L298NMotor{L298N_EN_A, L298N_IN_1, L298N_IN_2} /*motor*/,
+  QuadratureEncoder{RW_ENCODER_PHASE_A, RW_ENCODER_PHASE_B} /*encoder*/,
+  kDefaultPidControlRate /*pid_control_rate*/,
+  kDefaultRightMotorConfig /*wheel_config*/,
+  kPulsePerRevolution /*ticks_per_rev*/,
+  false /*invert_logic*/
 };
 
 WheelController g_left_wheel{
-  .motor = L298NMotor{L298N_EN_B, L298N_IN_3, L298N_IN_4},
-  .encoder = QuadratureEncoder{LW_ENCODER_PHASE_A, LW_ENCODER_PHASE_B},
-  .pid_control_rate = kDefaultPidControlRate,
-  .wheel_config = kDefaultLeftMotorConfig,
-  .ticks_per_rev = kPulsePerRevolution,
-  .invert_logic = true
+  L298NMotor{L298N_EN_B, L298N_IN_3, L298N_IN_4} /*motor*/,
+  QuadratureEncoder{LW_ENCODER_PHASE_A, LW_ENCODER_PHASE_B} /*encoder*/,
+  kDefaultPidControlRate /*pid_control_rate*/,
+  kDefaultLeftMotorConfig /*wheel_config*/,
+  kPulsePerRevolution /*ticks_per_rev*/,
+  true /*invert_logic*/
 };
 
 // Serial input message process
@@ -122,12 +122,17 @@ void sendSerialMessage(const TData& message_data);
 template<MsgId Id>
 void sendSerialMessage();
 
+template<>
+void sendSerialMessage<MsgId::Velocity>();
+
 // Activate/Deactivate control
 unsigned long g_last_valid_msg_time_ms{};
 void processEmergencyDeactivation(const unsigned long current_time_ms = millis());
 void activate(const unsigned long current_time_ms = millis());
 void deactivate();
 
+void ARDUINO_ISR_ATTR rightWheelEncoderCallback();
+void ARDUINO_ISR_ATTR leftWheelEncoderCallback();
 
 void setup() {
   Serial.begin(115200);
@@ -146,9 +151,9 @@ void setup() {
     g_left_wheel.begin();
 
     // right wheel encoder interrupt setup
-    attachInterrupt(digitalPinToInterrupt(RW_ENCODER_PHASE_A), rightWheelEncoderCallback, CHANGE);
+    attachInterrupt(RW_ENCODER_PHASE_A, rightWheelEncoderCallback, CHANGE);
     // left wheel encoder interrupt setup
-    attachInterrupt(digitalPinToInterrupt(LW_ENCODER_PHASE_A), leftWheelEncoderCallback, CHANGE);
+    attachInterrupt(LW_ENCODER_PHASE_A, leftWheelEncoderCallback, CHANGE);
 
     init_successful = true;
   }
@@ -274,7 +279,7 @@ void sendSerialMessage<MsgId::Velocity>() {
     .right_wheel_velocity = g_right_wheel.getCurrentVelocity(),
     .left_wheel_velocity = g_left_wheel.getCurrentVelocity()
   };
-  sendSerialMessage(data);
+  sendSerialMessage<VelocityData>(data);
 }
 
 void processEmergencyDeactivation(const unsigned long current_time_ms) {
@@ -294,10 +299,10 @@ void deactivate() {
   g_left_wheel.setActive(false);
 }
 
-void rightWheelEncoderCallback() {
+void ARDUINO_ISR_ATTR rightWheelEncoderCallback() {
   g_right_wheel.encoder().update();
 }
 
-void leftWheelEncoderCallback() {
+void ARDUINO_ISR_ATTR leftWheelEncoderCallback() {
   g_left_wheel.encoder().update();
 }

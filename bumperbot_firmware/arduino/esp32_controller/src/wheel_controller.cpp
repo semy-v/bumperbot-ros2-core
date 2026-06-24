@@ -1,13 +1,13 @@
 #include "wheel_controller.hpp"
 
-// #define DEAD_BAND_CALIBRATION 23
+// #define DEAD_BAND_CALIBRATION 120
 
 WheelController::WheelController(const L298NMotor& motor,
                     const QuadratureEncoder& encoder,
                     const double pid_control_rate,
                     const WheelConfig& wheel_config,
                     const double ticks_per_rev,
-                    bool invert_logic = false)
+                    bool invert_logic)
   : motor_(motor)
   , encoder_(encoder)
   , ticks_per_rev_(ticks_per_rev)
@@ -34,7 +34,7 @@ void WheelController::configure(const double pid_control_rate,
     pwm_deadband_ = static_cast<double>(wheel_config.pwm_deadband);
 
     // Safety check to ensure 0 not passed to the PID library
-    const int sample_time = max(1, control_loop_period_ms_);
+    const int sample_time = max(1.0, control_loop_period_ms_);
     pid_.SetSampleTime(sample_time);
 }
 
@@ -46,7 +46,7 @@ void WheelController::begin() {
     if (invert_logic_) last_ticks_ = -last_ticks_;
 }
 
-void WheelController::setActive(bool active = true) {
+void WheelController::setActive(bool active) {
     if (is_active_ == active) {
         return; 
     }

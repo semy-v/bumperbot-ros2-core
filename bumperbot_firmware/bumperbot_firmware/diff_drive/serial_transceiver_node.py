@@ -18,7 +18,7 @@ class SerialTransceiverNode(LifecycleNode):
         super().__init__("serial_transceiver")
 
         # Connection params
-        self.declare_parameter("port", "/dev/ttyUSB0")
+        self.declare_parameter("port", "/dev/ttyACM0")
         self.declare_parameter("baudrate", 115200)
 
         # Config params (Matching diff_drive_data.hpp ConfigData)

@@ -13,7 +13,7 @@
         <xacro:unless value="$(arg is_sim)">
             <hardware>
                 <plugin>bumperbot_firmware/DiffDriveInterface</plugin>
-                <param name="port">/dev/ttyUSB0</param>
+                <param name="port">/dev/ttyACM0</param>
                 <param name="wheels_min_velocity">0.8</param>
                 <param name="wheels_pid_rate">50</param>
                 <param name="wheel_right_kp">15.5</param>
