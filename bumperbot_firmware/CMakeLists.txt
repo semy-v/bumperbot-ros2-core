@@ -29,7 +29,7 @@ add_library(${PROJECT_NAME} SHARED
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
   include
-  arduino/diff_drive_controller/protocol
+  arduino/esp32_controller/include/protocol
   "${SERIAL_INCLUDE_DIRS}"
 )
 target_link_libraries(${PROJECT_NAME} LibSerial::LibSerial)

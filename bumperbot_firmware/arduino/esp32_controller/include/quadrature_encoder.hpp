@@ -2,6 +2,7 @@
 #define QUADRATURE_ENCODER_HPP
 
 #include <Arduino.h>
+#include <atomic>
 
 /**
  * 2x Quadrature Encoder class.
@@ -13,12 +14,16 @@ public:
         , pinB_(pinB)
     {}
 
-    ~QuadratureEncoder() = default;
+    QuadratureEncoder(const QuadratureEncoder& other) 
+        : pinA_(other.pinA_)
+        , pinB_(other.pinB_)
+        , ticks_(other.ticks_.load(std::memory_order_relaxed))
+    {}
 
-    QuadratureEncoder(const QuadratureEncoder&) = default;
     QuadratureEncoder(QuadratureEncoder&&) = delete;
     QuadratureEncoder& operator=(const QuadratureEncoder&) = delete;
     QuadratureEncoder& operator=(QuadratureEncoder&&) = delete;
+    ~QuadratureEncoder() = default;
 
     // Initialize pins. Interrupts must be attached manually outside the class.
     void begin() {
@@ -28,10 +33,7 @@ public:
 
     // Safely read the current position
     long read() const {
-        noInterrupts();
-        long current_ticks{ticks_};
-        interrupts();
-        return current_ticks;
+        return ticks_.load();
     }
 
     // ISR handler for 2x decoding. Triggered on CHANGE of Phase A.
@@ -42,15 +44,15 @@ public:
         const bool pinB_state = digitalRead(pinB_);
 
         if (pinA_state == pinB_state) {
-          ticks_-=1;
+          ticks_.fetch_sub(1, std::memory_order_relaxed);
         } else {
-          ticks_+=1;
+          ticks_.fetch_add(1, std::memory_order_relaxed);
         }
     }
 
 private:
     const uint8_t pinA_, pinB_;
-    volatile long ticks_{0};
+    std::atomic<long> ticks_{0};
 };
 
 #endif // QUADRATURE_ENCODER_HPP

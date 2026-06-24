@@ -7,8 +7,6 @@
 #include "l298n_motor.hpp"
 #include "protocol/diff_drive_data.hpp"
 
-// #define DEAD_BAND_CALIBRATION 23
-
 class WheelController {
 public:
     WheelController(const L298NMotor& motor,

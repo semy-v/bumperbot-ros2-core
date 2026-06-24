@@ -134,7 +134,7 @@ CallbackReturn DiffDriveInterface::on_init(
   }
 
   port_ = getHwParam<std::string>(
-    info_.hardware_parameters, "port", "/dev/ttyUSB0", logger);
+    info_.hardware_parameters, "port", "/dev/ttyACM0", logger);
   wheels_min_velocity_ = getHwParam<double>(
     info_.hardware_parameters, "wheels_min_velocity", 0.0, logger);
   config_data_.pid_rate = getHwParam<float>(
