@@ -10,9 +10,7 @@ struct WheelConfig {
     double kd;
     uint8_t pwm_deadband;
 
-#if defined(__cpp_impl_three_way_comparison)
-    bool operator==(const WheelConfig&) const = default;
-#endif
+    bool operator<=>(const WheelConfig&) const = default;
 };
 
 struct ConfigData {
@@ -20,10 +18,7 @@ struct ConfigData {
     WheelConfig r_wheel;
     WheelConfig l_wheel;
 
-// default comparison operator if supported by compiler
-#if defined(__cpp_impl_three_way_comparison)
-    bool operator==(const ConfigData&) const = default;
-#endif
+    bool operator<=>(const ConfigData&) const = default;
 };
 
 struct VelocityData {

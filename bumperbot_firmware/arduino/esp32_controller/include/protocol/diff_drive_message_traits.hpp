@@ -88,7 +88,7 @@ struct MessageRegistry {
     }
 };
 
-// A trait to identify a valid MessageRegistry type
+// A trait and concept to identify a valid MessageRegistry type
 template <typename T>
 struct is_message_registry {
     static constexpr bool value = false; 
@@ -98,5 +98,8 @@ template <typename... MsgDefs>
 struct is_message_registry<MessageRegistry<MsgDefs...>> {
     static constexpr bool value = true;
 };
+
+template<typename T>
+concept MessageRegistryConcept = is_message_registry<T>::value;
 
 #endif // DIFF_DRIVE_MESSAGE_TRAITS_HPP

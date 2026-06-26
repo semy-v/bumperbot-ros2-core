@@ -1,8 +1,10 @@
 #ifndef DIFF_DRIVE_DESERIALIZE_HPP
 #define DIFF_DRIVE_DESERIALIZE_HPP
 
-#include <stdint.h>
-#include <string.h>
+#include <bit>
+#include <cstdint>
+#include <cstring>
+
 #include "diff_drive_messages.hpp"
 
 // Represents the result of feeding a single byte into the deserializer
@@ -14,12 +16,9 @@ enum class ProcessResult {
     ERROR_CRC     // Payload failed CRC validation
 };
 
-template <typename Registry>
+template <MessageRegistryConcept Registry>
 class MessageStreamDeserializer {
 public:
-    static_assert(is_message_registry<Registry>::value,
-        "MessageStreamDeserializer must be instantiated with a MessageRegistry type");
-
     enum State {
         WAIT_FOR_START,
         WAIT_FOR_HEADER,
@@ -46,7 +45,7 @@ public:
 
                 // If received the full header
                 if (rx_index_ == sizeof(MessageHeader)) {
-                    memcpy(&current_header_, header_buffer_, sizeof(MessageHeader));
+                    current_header_ = std::bit_cast<MessageHeader>(header_buffer_);
 
                     // Safety check: Ensure the advertised length doesn't overflow static buffer
                     if (current_header_.payload_length > Registry::max_payload_size) {
@@ -117,7 +116,7 @@ public:
     void reset() {
         state_ = State::WAIT_FOR_START;
         rx_index_ = 0;
-        memset(&current_header_, 0, sizeof(MessageHeader));
+        current_header_ = {};
     }
 
 private:
