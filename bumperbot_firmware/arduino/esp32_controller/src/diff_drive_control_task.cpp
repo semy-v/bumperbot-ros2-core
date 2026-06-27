@@ -84,15 +84,15 @@ void diffDriveControlTask(void *pvParameters) {
     // Bind ISRs and hardware
     p_right_wheel = &right_wheel;
     p_left_wheel = &left_wheel;
+    right_wheel.begin();
+    left_wheel.begin();
+
     attachInterrupt(kPinRwEncoderPhaseA, rightWheelEncoderCallback, CHANGE);
     attachInterrupt(kPinLwEncoderPhaseA, leftWheelEncoderCallback, CHANGE);
 
     // Apply default PID control loop configuration
     double dt_sec = 1.0 / kDefaultPidControlRate;
     auto loop_frequency_ticks = pdMS_TO_TICKS(static_cast<uint32_t>(dt_sec * 1000.0));
-
-    right_wheel.begin();
-    left_wheel.begin();
 
     auto last_wake_time = xTaskGetTickCount();
     auto last_valid_msg_time_ticks = last_wake_time;

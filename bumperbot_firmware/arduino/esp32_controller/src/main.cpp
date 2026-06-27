@@ -72,6 +72,9 @@ void setup() {
   // CPU core 1 tasks
   xTaskCreatePinnedToCore(diffDriveControlTask, "DiffDriveControlTask", 4096, &task_shared_data, 2,
     &task_shared_data.diff_drive_control_task_handle, 1);
+
+  // Terminate the setup/loop task to free up CPU cycles
+  vTaskDelete(nullptr);
 }
 
 void loop() {}
