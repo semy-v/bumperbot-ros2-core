@@ -30,7 +30,7 @@ public:
 
     void setActive(bool active = true);
 
-    void update();
+    void update(const double dt_sec);
 
     void reset() {
         // Reset the PID's internal state
@@ -60,16 +60,12 @@ private:
     const double ticks_per_rev_;
     const bool invert_logic_;
 
-    double control_loop_period_ms_;
-
     double target_velocity_{0.0};
     double current_velocity_{0.0};
     double pwm_cmd_{0.0};
     double pwm_deadband_{0.0}; 
-    
-    unsigned long last_time_ms_{0};
-    long last_ticks_{0};
 
+    long last_ticks_{0};
     bool is_active_{false};
 
     PID pid_;

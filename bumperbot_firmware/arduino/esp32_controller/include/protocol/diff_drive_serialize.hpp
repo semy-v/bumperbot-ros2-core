@@ -3,12 +3,9 @@
 
 #include "diff_drive_messages.hpp"
 
-template<typename Registry>
+template<MessageRegistryConcept Registry>
 class MessageSerializer {
 public:
-    static_assert(is_message_registry<Registry>::value,
-        "MessageSerializer must be instantiated with a MessageRegistry type");
-
     static constexpr size_t getMaxFrameSize() {
         return sizeof(MessageHeader) + Registry::max_payload_size;
     }
