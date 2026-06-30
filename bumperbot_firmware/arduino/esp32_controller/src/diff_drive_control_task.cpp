@@ -57,6 +57,34 @@ void ARDUINO_ISR_ATTR leftWheelEncoderCallback() {
   p_left_wheel->encoder().update();
 }
 
+// Task control variables
+double dt_sec{};
+TickType_t main_loop_ticks{};
+TickType_t last_valid_msg_time_ticks{};
+
+// Wheels configure, activate, deactivete callbacks
+void activateWheels() {
+    p_right_wheel->setActive(true);
+    p_left_wheel->setActive(true);
+    last_valid_msg_time_ticks = xTaskGetTickCount();
+};
+
+void deactivateWheels() {
+    p_right_wheel->setActive(false);
+    p_left_wheel->setActive(false);
+};
+
+void configureWheels(const ConfigData& config_data) {
+    p_right_wheel->configure(config_data.pid_rate, config_data.r_wheel);
+    p_left_wheel->configure(config_data.pid_rate, config_data.l_wheel);
+
+    dt_sec = 1.0 / config_data.pid_rate;
+    main_loop_ticks = pdMS_TO_TICKS(static_cast<uint32_t>(dt_sec * 1000.0));
+
+    // Safety measure: drop torque when PID tunings change
+    deactivateWheels();
+};
+
 } // namespace
 
 
@@ -80,64 +108,52 @@ void diffDriveControlTask(void *pvParameters) {
         kPulsePerRevolution /*ticks_per_rev*/,
         true /*invert_logic*/
     };
-    
-    // Bind ISRs and hardware
+
     p_right_wheel = &right_wheel;
     p_left_wheel = &left_wheel;
+
+    // Initial wheels configuration loop
+    for(;;) {
+        ConfigData initial_config;
+        if (xQueueReceive(p_task_data->config_message_queue, &initial_config, portMAX_DELAY) == pdPASS) {
+            configureWheels(initial_config);
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    // Bind ISRs and hardware
     right_wheel.begin();
     left_wheel.begin();
-
     attachInterrupt(kPinRwEncoderPhaseA, rightWheelEncoderCallback, CHANGE);
     attachInterrupt(kPinLwEncoderPhaseA, leftWheelEncoderCallback, CHANGE);
 
-    // Apply default PID control loop configuration
-    double dt_sec = 1.0 / kDefaultPidControlRate;
-    auto loop_frequency_ticks = pdMS_TO_TICKS(static_cast<uint32_t>(dt_sec * 1000.0));
-
+    // Time variables setup
     auto last_wake_time = xTaskGetTickCount();
-    auto last_valid_msg_time_ticks = last_wake_time;
+    last_valid_msg_time_ticks = last_wake_time;
 
-    auto activate_wheels = [&right_wheel, &left_wheel, &last_valid_msg_time_ticks] {
-        right_wheel.setActive(true);
-        left_wheel.setActive(true);
-        last_valid_msg_time_ticks = xTaskGetTickCount();
-    };
-
-    auto deactivate_wheels = [&right_wheel, &left_wheel] {
-        right_wheel.setActive(false);
-        left_wheel.setActive(false);
-    };
-
-    // Main REAL-TIME task loop
+    // Main real-time PID control task loop
     for (;;) {
-        // Process Queued messages from other tasks
         ConfigData pending_config;
         if (xQueueReceive(p_task_data->config_message_queue, &pending_config, 0) == pdPASS) {
-            right_wheel.configure(pending_config.pid_rate, pending_config.r_wheel);
-            left_wheel.configure(pending_config.pid_rate, pending_config.l_wheel);
-
-            dt_sec = 1.0 / pending_config.pid_rate;
-            loop_frequency_ticks = pdMS_TO_TICKS(static_cast<uint32_t>(dt_sec * 1000.0));
-
-            // Safety measure: drop torque when PID tunings change
-            deactivate_wheels();
+            configureWheels(pending_config);
         }
 
         VelocityData velocity_data;
         if (xQueueReceive(p_task_data->target_velocity_message_queue, &velocity_data, 0) == pdPASS) {
             right_wheel.setTargetVelocity(velocity_data.right_wheel_velocity);
             left_wheel.setTargetVelocity(velocity_data.left_wheel_velocity);
-            activate_wheels();
+            activateWheels();
         }
 
         // deactivate wheels if requested by the serial input task
         if (ulTaskNotifyTakeIndexed(kDeactivateNotifyIndex, pdTRUE, 0) > 0) {
-            deactivate_wheels();
+            deactivateWheels();
         }
 
         // Emergency stop if no valid velocity message received within timeout
         if ((xTaskGetTickCount() - last_valid_msg_time_ticks) * portTICK_PERIOD_MS >= kEmergencyStopTimeoutMs) {
-            deactivate_wheels();
+            deactivateWheels();
         }
 
         // PID control update for each wheel
@@ -149,6 +165,6 @@ void diffDriveControlTask(void *pvParameters) {
         velocity_data.left_wheel_velocity = left_wheel.getCurrentVelocity();
         xQueueOverwrite(p_task_data->current_velocity_queue, &velocity_data);
 
-        vTaskDelayUntil(&last_wake_time, loop_frequency_ticks);
+        vTaskDelayUntil(&last_wake_time, main_loop_ticks);
     }
 }

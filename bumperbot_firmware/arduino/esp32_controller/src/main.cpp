@@ -57,15 +57,6 @@ void setup() {
     .diff_drive_control_task_handle = nullptr
   };
 
-  {
-    SerialInputProcessor input_processor(task_shared_data);
-    bool init_successful{false};
-    while(!init_successful) {
-      const auto result = input_processor.processNextSerialInputMessage(MsgId::Config);
-      init_successful = (SerialInputProcessor::Result::Success == result);
-    }
-  }
-
   // CPU core 0 tasks
   xTaskCreatePinnedToCore(serialProcessTask, "SerialProcessTask", 4096, &task_shared_data, 2, NULL, 0);
 
