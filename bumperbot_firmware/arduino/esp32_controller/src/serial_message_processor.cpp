@@ -5,7 +5,7 @@
 #include "serial_message_processor.hpp"
 
 SerialInputProcessor::Result SerialInputProcessor::processAllSerialInputMessages(const MsgId expected_msg_id) {
-    auto next_msg_result = processNextSerialInputMessage(expected_msg_id);
+  auto next_msg_result = processNextSerialInputMessage(expected_msg_id);
   bool valid_message_found = (Result::Success == next_msg_result);
 
   // MessageUnavailable is returned only if no serial input left
@@ -58,11 +58,11 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
           // send target velocity data to the control task
           xQueueOverwrite(task_shared_data_.target_velocity_message_queue, &vel_data);
 
-          // send actual wheel velocities in response
-          vel_data.right_wheel_velocity = 0.0;
-          vel_data.left_wheel_velocity = 0.0;
-          xQueuePeek(task_shared_data_.current_velocity_queue, &vel_data, 0);
-          sendSerialMessage(vel_data);
+          // schedule the sensor read task to send the latest data back
+          xTaskNotify(
+            task_shared_data_.sensor_read_task_handle,
+            static_cast<uint32_t>(vel_data.response_delay_ms),
+            eSetValueWithOverwrite);
 
           return Result::Success;
         }

@@ -209,7 +209,11 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
   }
 
   constexpr size_t kMaxReqRespAttempts{5};
-  constexpr VelocityData kZeroWheelVelocity{0.0, 0.0};
+  constexpr VelocityData kZeroWheelVelocity{
+    .right_wheel_velocity = 0.0,
+    .left_wheel_velocity = 0.0,
+    .response_delay_ms = 0
+  };
 
   const auto optional_response_data = sendReceiveMessageData(
     kZeroWheelVelocity, kMaxReqRespAttempts);
@@ -221,13 +225,26 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
     return CallbackReturn::FAILURE;
   }
 
+  // send extra velocity command for response
+  // message to be available before first read()
+  transceiver_.writeMessage(kZeroWheelVelocity);
+
   const auto response_data = *optional_response_data;
   RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
     "Current wheels angular velocity (rad/sec): right wheel %.1f | left wheel %.1f"
         , response_data.right_wheel_velocity, response_data.left_wheel_velocity);
 
+  // set communication budget with added 2ms
+  // for serial transmission and sensor read overhead
+  communication_budget_ms_ = measured_roundtrip_ms_ + 2;
+
   RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-              "hardware activated, ready to take commands");
+    "hardware activated, ready to receive commands");
+
+  // Reset response delay setup flag
+  // for the next write() cycle
+  response_delay_ms_.reset();
+
   return CallbackReturn::SUCCESS;
 }
 
@@ -328,11 +345,16 @@ hardware_interface::return_type DiffDriveInterface::read(const rclcpp::Time &,
 }
 
 hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
-                                                          const rclcpp::Duration &)
+                                                          const rclcpp::Duration &period)
 {
+  if (!response_delay_ms_) {
+    computeResponseDelay(period);
+  }
+
   VelocityData data{
     .right_wheel_velocity = wheels_data_[kRightWheelIndex].velocity_command,
-    .left_wheel_velocity = wheels_data_[kLeftWheelIndex].velocity_command
+    .left_wheel_velocity = wheels_data_[kLeftWheelIndex].velocity_command,
+    .response_delay_ms = *response_delay_ms_
   };
 
   // A tiny epsilon threshold to account for floating-point noise
@@ -363,7 +385,7 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
   return hardware_interface::return_type::OK;
 }
 
-size_t DiffDriveInterface::waitDataAvailableToRead(const size_t wait_time_ms) {
+uint8_t DiffDriveInterface::waitDataAvailableToRead(const uint8_t wait_time_ms) {
   const auto start = std::chrono::steady_clock::now();
 
   // Wait read data to become available
@@ -371,18 +393,20 @@ size_t DiffDriveInterface::waitDataAvailableToRead(const size_t wait_time_ms) {
       if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(wait_time_ms)) {
           break; // Timeout
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
 
   const auto elapsed_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - start);
 
-  return elapsed_time_ms.count();
+  // Add 1ms to account for any rounding errors
+  return static_cast<uint8_t>(elapsed_time_ms.count() + 1);
 }
 
 bool DiffDriveInterface::processVelocityStateMessage() {
   if (!transceiver_.isDataAvailable()) {
-    ++velocity_read_error_count_;
+    RCLCPP_WARN(rclcpp::get_logger("DiffDriveInterface"),
+      "Wheels velocity state message not available, count: '%lu'"
+        , ++velocity_read_error_count_);
     return false;
   }
 
@@ -415,6 +439,20 @@ bool DiffDriveInterface::closeSerialConnection() noexcept {
   }
 
   return result;
+}
+
+void DiffDriveInterface::computeResponseDelay(const rclcpp::Duration & period) {
+  // Calculate the response delay to account for the roundtrip time
+  // and ensure the Arduino has enough time to process the command
+  const auto period_ms = static_cast<int>(
+    std::lround(period.seconds() * 1000));
+
+  response_delay_ms_ = (period_ms > communication_budget_ms_)
+    ? static_cast<uint8_t>(period_ms - communication_budget_ms_) : 0;
+
+  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+    "Response message delay: %u ms (Period: %.2f ms, Communication Budget: %u ms)"
+      , *response_delay_ms_, period.seconds() * 1000, communication_budget_ms_);
 }
 
 }  // namespace bumperbot_firmware

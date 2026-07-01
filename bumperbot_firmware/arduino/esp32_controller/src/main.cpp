@@ -45,6 +45,19 @@
 #include "task_shared_data.hpp"
 #include "serial_message_processor.hpp"
 
+namespace {
+// CPU core 0 tasks
+constexpr UBaseType_t kSerialProcessTaskPriority{1};
+constexpr BaseType_t kSerialProcessTaskCpuCore{0};
+
+constexpr UBaseType_t kSensorReadTaskPriority{2};
+constexpr BaseType_t kSensorReadTaskCpuCore{0};
+
+// CPU core 1 tasks
+constexpr UBaseType_t kDiffDriveControlTaskPriority{2};
+constexpr BaseType_t kDiffDriveControlTaskCpuCore{1};
+} // namespace
+
 
 void setup() {
   Serial.begin(115200);
@@ -54,15 +67,16 @@ void setup() {
     .config_message_queue = xQueueCreate(1, sizeof(ConfigData)),
     .current_velocity_queue = xQueueCreate(1, sizeof(VelocityData)),
     .target_velocity_message_queue = xQueueCreate(1, sizeof(VelocityData)),
-    .diff_drive_control_task_handle = nullptr
+    .diff_drive_control_task_handle = nullptr,
+    .sensor_read_task_handle = nullptr
   };
 
-  // CPU core 0 tasks
-  xTaskCreatePinnedToCore(serialProcessTask, "SerialProcessTask", 4096, &task_shared_data, 2, NULL, 0);
-
-  // CPU core 1 tasks
-  xTaskCreatePinnedToCore(diffDriveControlTask, "DiffDriveControlTask", 4096, &task_shared_data, 2,
-    &task_shared_data.diff_drive_control_task_handle, 1);
+  xTaskCreatePinnedToCore(diffDriveControlTask, "DiffDriveControlTask", 4096, &task_shared_data,
+    kDiffDriveControlTaskPriority, &task_shared_data.diff_drive_control_task_handle, kDiffDriveControlTaskCpuCore);
+  xTaskCreatePinnedToCore(sensorReadTask, "SensorReadTask", 4096, &task_shared_data,
+    kSensorReadTaskPriority, &task_shared_data.sensor_read_task_handle, kSensorReadTaskCpuCore);
+  xTaskCreatePinnedToCore(serialProcessTask, "SerialProcessTask", 4096, &task_shared_data,
+    kSerialProcessTaskPriority, nullptr, kSerialProcessTaskCpuCore);
 
   // Terminate the setup/loop task to free up CPU cycles
   vTaskDelete(nullptr);

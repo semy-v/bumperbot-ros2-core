@@ -162,6 +162,7 @@ class SerialTransceiverNode(LifecycleNode):
         vel_msg = VelocityMsg(
             right_wheel_velocity=msg.right_wheel_velocity,
             left_wheel_velocity=msg.left_wheel_velocity,
+            response_delay_ms=5 # Set a default response delay of 5 ms for Arduino sensor read task scheduling
         )
         try:
             if self.transceiver_ and self.transceiver_.is_open:

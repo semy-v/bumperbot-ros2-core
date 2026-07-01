@@ -73,23 +73,24 @@ class ConfigMsg:
 class VelocityMsg:
     right_wheel_velocity: float
     left_wheel_velocity: float
+    response_delay_ms: int
     
     start_byte: int = START_BYTE
     msg_id: MsgId = MsgId.Velocity
 
-    # Header(4) + 2 double(8) = 20 bytes total
-    STRUCT_FORMAT = "<BBBBdd"
+    # Header(4) + 2 double(8) + uint8(1) = 21 bytes total
+    STRUCT_FORMAT = "<BBBBddB"
     EXPECTED_SIZE = struct.calcsize(STRUCT_FORMAT)
 
     def serialize(self) -> bytes:
-        payload = struct.pack("<dd", self.right_wheel_velocity, self.left_wheel_velocity)
+        payload = struct.pack("<ddB", self.right_wheel_velocity, self.left_wheel_velocity, self.response_delay_ms)
         header_no_crc = struct.pack("<BBB", self.start_byte, self.msg_id, len(payload))
         crc = calculate_lrc8(header_no_crc) ^ calculate_lrc8(payload)
         
         return struct.pack(
             self.STRUCT_FORMAT,
             self.start_byte, self.msg_id, len(payload), crc,
-            self.right_wheel_velocity, self.left_wheel_velocity
+            self.right_wheel_velocity, self.left_wheel_velocity, self.response_delay_ms
         )
 
     @classmethod
@@ -98,7 +99,7 @@ class VelocityMsg:
             raise ValueError(f"VelocityMsg length mismatch. Expected {cls.EXPECTED_SIZE}, got {len(data)}")
         
         unpacked = struct.unpack(cls.STRUCT_FORMAT, data)
-        return cls(right_wheel_velocity=unpacked[4], left_wheel_velocity=unpacked[5])
+        return cls(right_wheel_velocity=unpacked[4], left_wheel_velocity=unpacked[5], response_delay_ms=unpacked[6])
 
 @dataclass
 class DeactivateMsg:
@@ -116,6 +117,6 @@ class DeactivateMsg:
 
 
 # Sanity Checks matching C++ static_asserts
-assert ConfigMsg.EXPECTED_SIZE == 62, f"ConfigMsg format size must be 66 bytes! (Got {ConfigMsg.EXPECTED_SIZE})"
-assert VelocityMsg.EXPECTED_SIZE == 20, "VelocityMsg format size must be 20 bytes!"
-assert DeactivateMsg.EXPECTED_SIZE == 4, "DeactivateMsg format size must be 4 bytes!"
+assert ConfigMsg.EXPECTED_SIZE == 62, f"ConfigMsg format size must be 62 bytes! (Got {ConfigMsg.EXPECTED_SIZE})"
+assert VelocityMsg.EXPECTED_SIZE == 21, f"VelocityMsg format size must be 20 bytes! (Got {VelocityMsg.EXPECTED_SIZE})"
+assert DeactivateMsg.EXPECTED_SIZE == 4, f"DeactivateMsg format size must be 4 bytes! (Got {DeactivateMsg.EXPECTED_SIZE})"

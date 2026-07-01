@@ -24,13 +24,14 @@ struct ConfigData {
 struct VelocityData {
     double right_wheel_velocity;
     double left_wheel_velocity;
+    uint8_t response_delay_ms;
 };
 
 #pragma pack(pop)
 
 
 static_assert(sizeof(ConfigData) == 58, "ConfigData size mismatch!");
-static_assert(sizeof(VelocityData) == 16, "VelocityData size mismatch!");
+static_assert(sizeof(VelocityData) == 17, "VelocityData size mismatch!");
 
 
 #endif // DIFF_DRIVE_DATA_HPP

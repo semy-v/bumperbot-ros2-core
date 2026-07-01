@@ -53,9 +53,10 @@ private:
   using TwoWheelsData = std::array<WheelData, 2>;
 
   bool validateWheelJointNamesConfig() const;
-  size_t waitDataAvailableToRead(const size_t wait_time_ms);
+  uint8_t waitDataAvailableToRead(const uint8_t wait_time_ms);
   bool processVelocityStateMessage();
   bool closeSerialConnection() noexcept;
+  void computeResponseDelay(const rclcpp::Duration & period);
 
   template<typename TData>
   std::optional<TData> sendReceiveMessageData(
@@ -67,6 +68,9 @@ private:
   DiffDriveSerialTransceiver<BinaryMessageProtocol> transceiver_{};
   TwoWheelsData wheels_data_{};
   size_t velocity_read_error_count_{0};
+  uint8_t measured_roundtrip_ms_{0};
+  uint8_t communication_budget_ms_{0};
+  std::optional<uint8_t> response_delay_ms_{};
 
   // hardware parameters
   std::string port_;
@@ -83,13 +87,13 @@ std::optional<TData> DiffDriveInterface::sendReceiveMessageData(
     transceiver_.writeMessage(sendData);
 
     constexpr size_t kWaitTimeMs{100};
-    const auto elapsed_time_ms = waitDataAvailableToRead(kWaitTimeMs);
+    measured_roundtrip_ms_ = waitDataAvailableToRead(kWaitTimeMs);
 
     TData response_data;
     if (transceiver_.readLastMessageData(response_data)) {
       RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-        "Successfull req/resp attempt %zu took time %ld milliseconds"
-          , attempt, elapsed_time_ms);
+        "Successfull req/resp attempt %zu took time %u milliseconds"
+          , attempt, measured_roundtrip_ms_);
 
       return std::optional<TData>{response_data};
     }
@@ -104,12 +108,12 @@ bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
     transceiver_.template writeMessage<TargetId>();
 
     constexpr size_t kWaitTimeMs{100};
-    const auto elapsed_time_ms = waitDataAvailableToRead(kWaitTimeMs);
+    measured_roundtrip_ms_ = waitDataAvailableToRead(kWaitTimeMs);
 
     if (transceiver_.template readLastMessage<TargetId>()) {
       RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-        "Successfull req/resp attempt %zu took time %ld milliseconds"
-          , attempt, elapsed_time_ms);
+        "Successfull req/resp attempt %zu took time %u milliseconds"
+          , attempt, measured_roundtrip_ms_);
 
       return true;
     }

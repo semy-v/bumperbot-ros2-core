@@ -119,7 +119,6 @@ void diffDriveControlTask(void *pvParameters) {
             configureWheels(initial_config);
             break;
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     // Bind ISRs and hardware
