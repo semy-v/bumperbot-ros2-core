@@ -80,11 +80,11 @@ constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
 // SENSOR CONFIGURATION MAPS (LSB sensitivity per unit)
 // ============================================================
 // Index mapping: 0=±2g, 1=±4g, 2=±8g, 3=±16g
-constexpr std::array<float, 4> kAccelFsMap = {16384.0f, 8192.0f, 4096.0f,
+constexpr std::array kAccelFsMap = {16384.0f, 8192.0f, 4096.0f,
                                               2048.0f};
 
 // Index mapping: 0=±250dps, 1=±500dps, 2=±1000dps, 3=±2000dps
-constexpr std::array<float, 4> kGyroFsMap = {131.0f, 65.5f, 32.8f, 16.4f};
+constexpr std::array kGyroFsMap = {131.0f, 65.5f, 32.8f, 16.4f};
 
 // ============================================================
 // ACTIVE SETTINGS

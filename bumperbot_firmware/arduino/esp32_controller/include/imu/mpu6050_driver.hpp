@@ -29,10 +29,9 @@ class MPU6050 {
 
   bool connect() {
     // Physical ping verification via WHO_AM_I register check
-    uint8_t identityToken{0};
-    if (!bus_.readBlock(address_, mpu6050::kWhoAmIReg, &identityToken,
-                        sizeof(identityToken)) ||
-        identityToken != mpu6050::kWhoAmIValue) {
+    std::array<uint8_t, 1> identityToken{0};
+    if (!bus_.readBlock(address_, mpu6050::kWhoAmIReg, identityToken) ||
+        identityToken[0] != mpu6050::kWhoAmIValue) {
       connected_ = false;
       return false;
     }
@@ -134,8 +133,7 @@ class MPU6050 {
 
     // If the read fails (e.g., loose wire), return null optional to indicate
     // failure
-    if (!bus_.readBlock(address_, mpu6050::kAccelXoutHReg, buffer.data(),
-                        buffer.size())) {
+    if (!bus_.readBlock(address_, mpu6050::kAccelXoutHReg, buffer)) {
       return std::nullopt;
     }
 
