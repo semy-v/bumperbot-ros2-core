@@ -11,19 +11,21 @@ namespace bumperbot_firmware {
 
 template <typename T>
 concept ProtocolCodec = requires(T codec, 
-                                 const ConfigData& pid_data,
-                                 const VelocityData& vel_data,
+                                 const DiffDriveConfigData& pid_data,
+                                 const ImuConfigData& imu_config,
+                                 const DiffDriveCommandData& diff_drive_cmd,
                                  std::vector<uint8_t>& stream_buffer, 
-                                 VelocityData& out_vel_data, 
+                                 DiffDriveStateData& diff_drive_state, 
                                  std::string& error_message) 
 {
     // Verify that a generic template serialize function exists for all required types
-    { codec.template serializeMessage<ConfigData>(pid_data) } -> std::same_as<const std::vector<uint8_t>&>;
-    { codec.template serializeMessage<VelocityData>(vel_data) } -> std::same_as<const std::vector<uint8_t>&>;
+    { codec.template serializeMessage<DiffDriveConfigData>(pid_data) } -> std::same_as<const std::vector<uint8_t>&>;
+    { codec.template serializeMessage<ImuConfigData>(imu_config) } -> std::same_as<const std::vector<uint8_t>&>;
+    { codec.template serializeMessage<DiffDriveCommandData>(diff_drive_cmd) } -> std::same_as<const std::vector<uint8_t>&>;
     { codec.template serializeMessage<MsgId::Deactivate>() } -> std::same_as<const std::vector<uint8_t>&>;
 
     // Verify the incoming stream processor function matches the signature
-    { codec.template deserializeLastStreamMessage<VelocityData>(stream_buffer, out_vel_data, error_message) } -> std::same_as<bool>;
+    { codec.template deserializeLastStreamMessage<DiffDriveStateData>(stream_buffer, diff_drive_state, error_message) } -> std::same_as<bool>;
     { codec.template deserializeLastStreamMessage<MsgId::Deactivate>(stream_buffer, error_message) } -> std::same_as<bool>;
 };
 

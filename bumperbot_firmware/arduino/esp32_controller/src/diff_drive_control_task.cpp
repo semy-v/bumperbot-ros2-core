@@ -74,7 +74,7 @@ void deactivateWheels() {
     p_left_wheel->setActive(false);
 };
 
-void configureWheels(const ConfigData& config_data) {
+void configureWheels(const DiffDriveConfigData& config_data) {
     p_right_wheel->configure(config_data.pid_rate, config_data.r_wheel);
     p_left_wheel->configure(config_data.pid_rate, config_data.l_wheel);
 
@@ -114,8 +114,8 @@ void diffDriveControlTask(void *pvParameters) {
 
     // Initial wheels configuration loop
     for(;;) {
-        ConfigData initial_config;
-        if (xQueueReceive(p_task_data->config_message_queue, &initial_config, portMAX_DELAY) == pdPASS) {
+        DiffDriveConfigData initial_config;
+        if (xQueueReceive(p_task_data->diff_drive_config_queue, &initial_config, portMAX_DELAY) == pdPASS) {
             configureWheels(initial_config);
             break;
         }
@@ -133,19 +133,21 @@ void diffDriveControlTask(void *pvParameters) {
 
     // Main real-time PID control task loop
     for (;;) {
-        ConfigData pending_config;
-        if (xQueueReceive(p_task_data->config_message_queue, &pending_config, 0) == pdPASS) {
-            configureWheels(pending_config);
+        {
+            DiffDriveConfigData config;
+            if (xQueueReceive(p_task_data->diff_drive_config_queue, &config, 0) == pdPASS) {
+                configureWheels(config);
+            }
         }
 
-        VelocityData velocity_data;
-        if (xQueueReceive(p_task_data->target_velocity_message_queue, &velocity_data, 0) == pdPASS) {
+        DiffDriveVelocityData velocity_data;
+        if (xQueueReceive(p_task_data->diff_drive_command_queue, &velocity_data, 0) == pdPASS) {
             right_wheel.setTargetVelocity(velocity_data.right_wheel_velocity);
             left_wheel.setTargetVelocity(velocity_data.left_wheel_velocity);
             activateWheels();
         }
 
-        // deactivate wheels if requested by the serial input task
+        // Deactivate wheels upon request
         if (ulTaskNotifyTakeIndexed(kDeactivateNotifyIndex, pdTRUE, 0) > 0) {
             deactivateWheels();
         }
@@ -159,10 +161,10 @@ void diffDriveControlTask(void *pvParameters) {
         right_wheel.update(dt_sec);
         left_wheel.update(dt_sec);
 
-        // Publish current wheel velocities for other tasks to consume
+        // Publish current wheel velocity states for other tasks to consume
         velocity_data.right_wheel_velocity = right_wheel.getCurrentVelocity();
         velocity_data.left_wheel_velocity = left_wheel.getCurrentVelocity();
-        xQueueOverwrite(p_task_data->current_velocity_queue, &velocity_data);
+        xQueueOverwrite(p_task_data->diff_drive_state_queue, &velocity_data);
 
         vTaskDelayUntil(&last_wake_time, main_loop_ticks);
     }

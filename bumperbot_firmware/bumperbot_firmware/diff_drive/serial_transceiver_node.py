@@ -21,7 +21,7 @@ class SerialTransceiverNode(LifecycleNode):
         self.declare_parameter("port", "/dev/ttyACM0")
         self.declare_parameter("baudrate", 115200)
 
-        # Config params (Matching diff_drive_data.hpp ConfigData)
+        # Config params (Matching diff_drive_data.hpp DiffDriveConfigData)
         self.declare_parameter("pid_rate", 25.0)
         self.declare_parameter("r_wheel_kp", 6.0)
         self.declare_parameter("r_wheel_ki", 25.0)
@@ -67,7 +67,7 @@ class SerialTransceiverNode(LifecycleNode):
             l_db = self.get_parameter("l_wheel_deadband").value
 
             self.get_logger().info(
-                f"Sending ConfigData: pid_rate {pid_rate}, "
+                f"Sending DiffDriveConfigData: pid_rate {pid_rate}, "
                 f"r_wheel = (kp {r_kp} | ki {r_ki} | kd {r_kd} | deadband {r_db}), "
                 f"l_wheel = (kp {l_kp} | ki {l_ki} | kd {l_kd} | deadband {l_db})"
             )

@@ -58,9 +58,9 @@ private:
   bool closeSerialConnection() noexcept;
   void computeResponseDelay(const rclcpp::Duration & period);
 
-  template<typename TData>
-  std::optional<TData> sendReceiveMessageData(
-      const TData& sendData, const size_t max_attempts, const size_t wait_time_ms = 50);
+  template<typename SendData, typename ReceiveData = SendData>
+  std::optional<ReceiveData> sendReceiveMessageData(
+      const SendData& send_data, const size_t max_attempts, const size_t wait_time_ms = 100);
 
   template<MsgId TargetId>
   bool sendReceiveMessage(const size_t max_attempts);
@@ -75,26 +75,26 @@ private:
   // hardware parameters
   std::string port_;
   double wheels_min_velocity_;
-  ConfigData config_data_;
+  DiffDriveConfigData config_data_;
 };
 
 
-template<typename TData>
-std::optional<TData> DiffDriveInterface::sendReceiveMessageData(
-      const TData& sendData, const size_t max_attempts, const size_t wait_time_ms)
+template<typename SendData, typename ReceiveData>
+std::optional<ReceiveData> DiffDriveInterface::sendReceiveMessageData(
+      const SendData& send_data, const size_t max_attempts, const size_t wait_time_ms)
 {
   for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
-    transceiver_.writeMessage(sendData);
+    transceiver_.writeMessage(send_data);
 
     measured_roundtrip_ms_ = waitDataAvailableToRead(wait_time_ms);
 
-    TData response_data;
+    ReceiveData response_data;
     if (transceiver_.readLastMessageData(response_data)) {
       RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
         "Successfull req/resp attempt %zu took time %zu milliseconds"
           , attempt, measured_roundtrip_ms_);
 
-      return std::optional<TData>{response_data};
+      return std::optional<ReceiveData>{response_data};
     }
   }
 

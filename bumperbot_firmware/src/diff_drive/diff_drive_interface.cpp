@@ -199,7 +199,7 @@ CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &)
   }
   if (false == imu_config_resp_opt.value().result) {
     RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
-        "IMU configuration failed");
+        "IMU configuration/calibration failed");
     return CallbackReturn::ERROR;
   }
 
@@ -209,22 +209,22 @@ CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &)
     "Sending Wheels configuration message, waiting for echo response (max %zu attempts) ..."
       , kMaxConfigHandshakeAttempts);
 
-  const auto optional_response_data = sendReceiveMessageData(config_data_, kMaxConfigHandshakeAttempts);
-  if (not optional_response_data) {
+  const auto opt_response = sendReceiveMessageData(config_data_, kMaxConfigHandshakeAttempts);
+  if (not opt_response) {
     RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
         "Configuration response message error: '%s'"
           , transceiver_.lastErrorMessage().c_str());
     return CallbackReturn::ERROR;
   }
 
-  const auto response_data = *optional_response_data;
-  if (response_data != config_data_) {
+  const auto response = *opt_response;
+  if (response != config_data_) {
     RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
         "Response config mismatch: PID rate %.1f Hz | "
         "Right wheel config: { kp - %.1f, ki - %.1f, kd - %.1f } | "
-        "Left wheel config: { kp - %.1f, ki - %.1f, kd - %.1f }" , response_data.pid_rate
-        , response_data.r_wheel.kp, response_data.r_wheel.ki, response_data.r_wheel.kd
-        , response_data.l_wheel.kp, response_data.l_wheel.ki, response_data.l_wheel.kd);
+        "Left wheel config: { kp - %.1f, ki - %.1f, kd - %.1f }" , response.pid_rate
+        , response.r_wheel.kp, response.r_wheel.ki, response.r_wheel.kd
+        , response.l_wheel.kp, response.l_wheel.ki, response.l_wheel.kd);
     return CallbackReturn::ERROR;
   }
 
@@ -241,16 +241,19 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
   }
 
   constexpr size_t kMaxReqRespAttempts{5};
-  constexpr VelocityData kZeroWheelVelocity{
-    .right_wheel_velocity = 0.0,
-    .left_wheel_velocity = 0.0,
+  constexpr DiffDriveCommandData kZeroWheelVelocity{
+    .velocity = {
+      .right_wheel_velocity = 0.0,
+      .left_wheel_velocity = 0.0,
+    },
     .response_delay_ms = 0
   };
 
-  const auto optional_response_data = sendReceiveMessageData(
-    kZeroWheelVelocity, kMaxReqRespAttempts);
+  const auto opt_response =
+    sendReceiveMessageData<DiffDriveCommandData, DiffDriveStateData>(
+        kZeroWheelVelocity, kMaxReqRespAttempts);
 
-  if (not optional_response_data) {
+  if (not opt_response) {
     RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
         "Activation response message error: '%s'"
           , transceiver_.lastErrorMessage().c_str());
@@ -261,10 +264,11 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
   // message to be available before first read()
   transceiver_.writeMessage(kZeroWheelVelocity);
 
-  const auto response_data = *optional_response_data;
+  const auto response = *opt_response;
   RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
     "Current wheels angular velocity (rad/sec): right wheel %.1f | left wheel %.1f"
-        , response_data.right_wheel_velocity, response_data.left_wheel_velocity);
+        , response.velocity.right_wheel_velocity
+        , response.velocity.left_wheel_velocity);
 
   // set communication budget with added 2ms
   // for serial transmission and sensor read overhead
@@ -383,9 +387,11 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
     computeResponseDelay(period);
   }
 
-  VelocityData data{
-    .right_wheel_velocity = wheels_data_[kRightWheelIndex].velocity_command,
-    .left_wheel_velocity = wheels_data_[kLeftWheelIndex].velocity_command,
+  DiffDriveCommandData command{
+    .velocity = {
+      .right_wheel_velocity = static_cast<float>(wheels_data_[kRightWheelIndex].velocity_command),
+      .left_wheel_velocity = static_cast<float>(wheels_data_[kLeftWheelIndex].velocity_command),
+    },
     .response_delay_ms = *response_delay_ms_
   };
 
@@ -393,26 +399,26 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
   constexpr double kZeroThreshold = 1e-4;
 
   // --- Right Wheel Control ---
-  if (std::abs(data.right_wheel_velocity) <= kZeroThreshold) {
+  if (std::abs(command.velocity.right_wheel_velocity) <= kZeroThreshold) {
     // Force a clean stop if the command is microscopic noise
-    data.right_wheel_velocity = 0.0;
+    command.velocity.right_wheel_velocity = 0.0;
   }
-  else if (std::abs(data.right_wheel_velocity) < wheels_min_velocity_) {
+  else if (std::abs(command.velocity.right_wheel_velocity) < wheels_min_velocity_) {
     // Clamp up to minimum velocity if trying to move but under mechanical limits
-    data.right_wheel_velocity = std::copysign(wheels_min_velocity_, data.right_wheel_velocity);
+    command.velocity.right_wheel_velocity = std::copysign(wheels_min_velocity_, command.velocity.right_wheel_velocity);
   }
 
   // --- Left Wheel Control ---
-  if (std::abs(data.left_wheel_velocity) <= kZeroThreshold) {
+  if (std::abs(command.velocity.left_wheel_velocity) <= kZeroThreshold) {
     // Force a clean stop if the command is microscopic noise
-    data.left_wheel_velocity = 0.0;
+    command.velocity.left_wheel_velocity = 0.0;
   }
-  else if (std::abs(data.left_wheel_velocity) < wheels_min_velocity_) {
+  else if (std::abs(command.velocity.left_wheel_velocity) < wheels_min_velocity_) {
     // Clamp up to minimum velocity if trying to move but under mechanical limits
-    data.left_wheel_velocity = std::copysign(wheels_min_velocity_, data.left_wheel_velocity);
+    command.velocity.left_wheel_velocity = std::copysign(wheels_min_velocity_, command.velocity.left_wheel_velocity);
   }
 
-  transceiver_.writeMessage(data);
+  transceiver_.writeMessage(command);
 
   return hardware_interface::return_type::OK;
 }
@@ -443,8 +449,8 @@ bool DiffDriveInterface::processVelocityStateMessage() {
     return false;
   }
 
-  VelocityData data;
-  if (!transceiver_.readLastMessageData(data)) {
+  DiffDriveStateData state;
+  if (!transceiver_.readLastMessageData(state)) {
     RCLCPP_WARN(rclcpp::get_logger("DiffDriveInterface"),
       "Failed to process wheels velocity state message: '%s'"
         , transceiver_.lastErrorMessage().c_str());
@@ -453,8 +459,8 @@ bool DiffDriveInterface::processVelocityStateMessage() {
     return false;
   }
 
-  wheels_data_[kRightWheelIndex].velocity_state = data.right_wheel_velocity;
-  wheels_data_[kLeftWheelIndex].velocity_state = data.left_wheel_velocity;
+  wheels_data_[kRightWheelIndex].velocity_state = state.velocity.right_wheel_velocity;
+  wheels_data_[kLeftWheelIndex].velocity_state = state.velocity.left_wheel_velocity;
   velocity_read_error_count_ = 0;
 
   return true;

@@ -49,18 +49,17 @@ class WireI2cBus {
     }
 
     // requestFrom returns the actual number of bytes successfully read into the internal Wire buffer
-    const size_t bytesReceived = wire_.requestFrom(
+    const size_t bytes_received = wire_.requestFrom(
         static_cast<uint16_t>(address),
         static_cast<uint8_t>(buffer.size()),
         static_cast<uint8_t>(true)
     );
 
     // Fail immediately if the bus did not deliver the requested frame size
-    if (bytesReceived != buffer.size()) {
+    if (bytes_received != buffer.size()) {
         return false;
     }
 
-    // Leverage STL algorithm to pull data out of the Wire buffer sequentially
     std::generate(buffer.begin(), buffer.end(), [this]() {
         return static_cast<uint8_t>(wire_.read());
     });
@@ -68,7 +67,7 @@ class WireI2cBus {
     return true;
 }
 
- private:
+private:
   TwoWire& wire_;
 };
 

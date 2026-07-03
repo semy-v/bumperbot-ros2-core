@@ -48,12 +48,13 @@ void sensorReadTask(void* pvParameters) {
                     vTaskDelay(pdMS_TO_TICKS(response_delay_ms));
 
                     // send latest velocity data in response
-                    VelocityData vel_data{
-                        .right_wheel_velocity = 0.0,
-                        .left_wheel_velocity = 0.0};
-                    xQueuePeek(p_task_data->current_velocity_queue, &vel_data, 0);
-                    vel_data.response_delay_ms = response_delay_ms;
-                    sendSerialMessage(vel_data);
+                    DiffDriveStateData state{
+                        .velocity = {
+                            .right_wheel_velocity = 0.0f,
+                            .left_wheel_velocity = 0.0f
+                        }};
+                    xQueuePeek(p_task_data->diff_drive_state_queue, &state.velocity, 0);
+                    sendSerialMessage(state);
                 } break;
                 default:
                     // Handle unknown event

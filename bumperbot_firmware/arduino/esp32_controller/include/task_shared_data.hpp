@@ -31,9 +31,9 @@ static_assert(sizeof(SensorTaskEvent) == sizeof(uint32_t), "SensorTaskEvent size
 
 // shared data structure for inter-task usage
 struct TaskSharedData {
-    QueueHandle_t config_message_queue;
-    QueueHandle_t current_velocity_queue;
-    QueueHandle_t target_velocity_message_queue;
+    QueueHandle_t diff_drive_config_queue;
+    QueueHandle_t diff_drive_command_queue;
+    QueueHandle_t diff_drive_state_queue;
     TaskHandle_t diff_drive_control_task_handle;
     TaskHandle_t sensor_read_task_handle;
 };

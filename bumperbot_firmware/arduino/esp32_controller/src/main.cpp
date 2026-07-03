@@ -64,9 +64,9 @@ void setup() {
   while(!Serial);
 
   static TaskSharedData task_shared_data{
-    .config_message_queue = xQueueCreate(1, sizeof(ConfigData)),
-    .current_velocity_queue = xQueueCreate(1, sizeof(VelocityData)),
-    .target_velocity_message_queue = xQueueCreate(1, sizeof(VelocityData)),
+    .diff_drive_config_queue = xQueueCreate(1, sizeof(DiffDriveConfigData)),
+    .diff_drive_command_queue = xQueueCreate(1, sizeof(DiffDriveVelocityData)),
+    .diff_drive_state_queue = xQueueCreate(1, sizeof(DiffDriveVelocityData)),
     .diff_drive_control_task_handle = nullptr,
     .sensor_read_task_handle = nullptr
   };
