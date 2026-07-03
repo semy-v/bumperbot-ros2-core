@@ -176,7 +176,39 @@ CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &)
   // wait for Arduino wake up
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
+  // First send IMU configuration message with calibration data and wait for echo response
+  constexpr size_t kMaxImuConfigAttempts{1};
+  constexpr size_t kImuCalibrationPeriodMs{2000};
+  constexpr size_t kImuConfigReqRespTimeMs{kImuCalibrationPeriodMs + 1000};
+
+  ImuConfigData imu_config_data{
+    .calibrate_period_ms = kImuCalibrationPeriodMs,
+    .result = true
+  };
+
+  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), 
+    "Sending IMU configuration message with calibration period %zu ms (keep robot flat on the ground)..."
+      , kImuCalibrationPeriodMs);
+  const auto imu_config_resp_opt =
+    sendReceiveMessageData(imu_config_data, kMaxImuConfigAttempts, kImuConfigReqRespTimeMs);
+  if (false == imu_config_resp_opt.has_value()) {
+    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+        "IMU configuration response message error: '%s'"
+          , transceiver_.lastErrorMessage().c_str());
+    return CallbackReturn::ERROR;
+  }
+  if (false == imu_config_resp_opt.value().result) {
+    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+        "IMU configuration failed");
+    return CallbackReturn::ERROR;
+  }
+
+  // Next send configuration message and wait for echo response
   constexpr size_t kMaxConfigHandshakeAttempts{10};
+  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), 
+    "Sending Wheels configuration message, waiting for echo response (max %zu attempts) ..."
+      , kMaxConfigHandshakeAttempts);
+
   const auto optional_response_data = sendReceiveMessageData(config_data_, kMaxConfigHandshakeAttempts);
   if (not optional_response_data) {
     RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
@@ -385,7 +417,7 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
   return hardware_interface::return_type::OK;
 }
 
-uint8_t DiffDriveInterface::waitDataAvailableToRead(const uint8_t wait_time_ms) {
+size_t DiffDriveInterface::waitDataAvailableToRead(const size_t wait_time_ms) {
   const auto start = std::chrono::steady_clock::now();
 
   // Wait read data to become available
@@ -393,13 +425,14 @@ uint8_t DiffDriveInterface::waitDataAvailableToRead(const uint8_t wait_time_ms) 
       if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(wait_time_ms)) {
           break; // Timeout
       }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
   const auto elapsed_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - start);
 
   // Add 1ms to account for any rounding errors
-  return static_cast<uint8_t>(elapsed_time_ms.count() + 1);
+  return static_cast<size_t>(elapsed_time_ms.count());
 }
 
 bool DiffDriveInterface::processVelocityStateMessage() {
@@ -444,14 +477,14 @@ bool DiffDriveInterface::closeSerialConnection() noexcept {
 void DiffDriveInterface::computeResponseDelay(const rclcpp::Duration & period) {
   // Calculate the response delay to account for the roundtrip time
   // and ensure the Arduino has enough time to process the command
-  const auto period_ms = static_cast<int>(
+  const auto period_ms = static_cast<size_t>(
     std::lround(period.seconds() * 1000));
 
   response_delay_ms_ = (period_ms > communication_budget_ms_)
     ? static_cast<uint8_t>(period_ms - communication_budget_ms_) : 0;
 
   RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-    "Response message delay: %u ms (Period: %.2f ms, Communication Budget: %u ms)"
+    "Response message delay: %u ms (Period: %.2f ms, Communication Budget: %zu ms)"
       , *response_delay_ms_, period.seconds() * 1000, communication_budget_ms_);
 }
 

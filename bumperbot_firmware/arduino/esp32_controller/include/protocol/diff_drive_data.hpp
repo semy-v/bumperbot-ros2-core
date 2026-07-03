@@ -21,6 +21,11 @@ struct ConfigData {
     bool operator<=>(const ConfigData&) const = default;
 };
 
+struct ImuConfigData {
+    uint16_t calibrate_period_ms;
+    bool result;
+};
+
 struct VelocityData {
     double right_wheel_velocity;
     double left_wheel_velocity;
@@ -32,6 +37,7 @@ struct VelocityData {
 
 static_assert(sizeof(ConfigData) == 58, "ConfigData size mismatch!");
 static_assert(sizeof(VelocityData) == 17, "VelocityData size mismatch!");
+static_assert(sizeof(ImuConfigData) == 3, "ImuConfigData size mismatch!");
 
 
 #endif // DIFF_DRIVE_DATA_HPP

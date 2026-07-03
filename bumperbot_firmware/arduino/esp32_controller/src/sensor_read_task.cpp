@@ -1,31 +1,64 @@
+
+#include <Arduino.h>
+#include <Wire.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
-#include "task_shared_data.hpp"
-#include "serial_message_processor.hpp"
+#include "imu/mpu6050_driver.hpp"
 #include "protocol/diff_drive_data.hpp"
+#include "serial_message_processor.hpp"
+#include "task_shared_data.hpp"
+#include "wire_i2c_bus.hpp"
 
-void sensorReadTask(void *pvParameters) {
+void task_delay_func(unsigned long ms) {
+    vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
+void sensorReadTask(void* pvParameters) {
+    Wire.begin();
+
     auto p_task_data = static_cast<TaskSharedData*>(pvParameters);
-    uint32_t response_delay_ms;
+    MPU6050<WireI2cBus> imu_sensor{WireI2cBus{Wire}, task_delay_func};
+    uint32_t notify_value{};
 
     for (;;) {
-        if (xTaskNotifyWait(0, ULONG_MAX, &response_delay_ms, portMAX_DELAY) == pdTRUE) {
-            // Delay the task for the specified number of milliseconds
-            // before sending the latest sensor data
-            if (response_delay_ms > 0) {
-                vTaskDelay(pdMS_TO_TICKS(response_delay_ms));
-            }
+        if (xTaskNotifyWait(0, ULONG_MAX, &notify_value, portMAX_DELAY) == pdTRUE) {
+            const SensorTaskEvent event = std::bit_cast<SensorTaskEvent>(notify_value);
 
-            // send latest velocity data in response
-            VelocityData vel_data{
-                .right_wheel_velocity = 0.0,
-                .left_wheel_velocity = 0.0,
-            };
-            xQueuePeek(p_task_data->current_velocity_queue, &vel_data, 0);
-            vel_data.response_delay_ms = static_cast<uint8_t>(response_delay_ms);
-            sendSerialMessage(vel_data);
+            switch (event.id) {
+                case SensorTaskEventId::ImuConfig: {
+                    ImuConfigData imu_config_data{
+                        .calibrate_period_ms = static_cast<uint16_t>(event.payload),
+                        .result = false};
+                    if (imu_sensor.connect()) {
+                        constexpr uint16_t kSampleIntervalMs{10};
+                        const uint16_t sample_count{
+                            static_cast<uint16_t>(imu_config_data.calibrate_period_ms / kSampleIntervalMs)};
+                        imu_config_data.result =
+                            imu_sensor.calibrate(sample_count, kSampleIntervalMs).has_value();
+                    }
+                    sendSerialMessage(imu_config_data);
+                } break;
+                case SensorTaskEventId::SensorRead: {
+                    // Delay the task for the specified number of milliseconds
+                    // in order to send the latest sensor data
+                    const uint8_t response_delay_ms =
+                        static_cast<uint8_t>(event.payload);
+                    vTaskDelay(pdMS_TO_TICKS(response_delay_ms));
+
+                    // send latest velocity data in response
+                    VelocityData vel_data{
+                        .right_wheel_velocity = 0.0,
+                        .left_wheel_velocity = 0.0};
+                    xQueuePeek(p_task_data->current_velocity_queue, &vel_data, 0);
+                    vel_data.response_delay_ms = response_delay_ms;
+                    sendSerialMessage(vel_data);
+                } break;
+                default:
+                    // Handle unknown event
+                    break;
+            }
         }
     }
 }

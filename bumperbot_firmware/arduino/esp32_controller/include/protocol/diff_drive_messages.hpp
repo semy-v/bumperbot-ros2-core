@@ -8,18 +8,21 @@
 // Unique identifiers for every valid command over the wire.
 enum class MsgId : uint8_t {
     Config,
+    ImuConfig,
     Velocity,
     Deactivate,
     End // meta value designating end of MsgId enum
 };
 
 using ConfigMsg     = MessageDef<MsgId::Config, ConfigData>;
+using ImuConfigMsg    = MessageDef<MsgId::ImuConfig, ImuConfigData>;
 using VelocityMsg   = MessageDef<MsgId::Velocity, VelocityData>;
 using DeactivateMsg = MessageDef<MsgId::Deactivate, void>; // zero-payload
 
 // Single source of truth containing all valid protocol definitions.
 using DiffDriveMessageRegistry = MessageRegistry<
     ConfigMsg,
+    ImuConfigMsg,
     VelocityMsg,
     DeactivateMsg
 >;

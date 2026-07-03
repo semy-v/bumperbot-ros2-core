@@ -2,6 +2,8 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
+#include <bit>
+
 #include "serial_message_processor.hpp"
 
 SerialInputProcessor::Result SerialInputProcessor::processAllSerialInputMessages(const MsgId expected_msg_id) {
@@ -48,6 +50,27 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
 
           return Result::Success;
         }
+        case MsgId::ImuConfig:
+        {
+          ImuConfigData imu_config_data;
+          if (!deserializer_.getPayload(imu_config_data)) {
+            return Result::MessageInvalid;
+          }
+
+          const SensorTaskEvent imu_config_event{
+            .id = SensorTaskEventId::ImuConfig,
+            .payload = imu_config_data.calibrate_period_ms
+          };
+
+          // NOTE: collisions with other event(s) not expected due to sequential messages request/response
+          // so we can safely overwrite the notification value with the new event
+          xTaskNotify(
+            task_shared_data_.sensor_read_task_handle,
+            std::bit_cast<uint32_t>(imu_config_event),
+            eSetValueWithOverwrite);
+
+          return Result::Success;
+        }
         case MsgId::Velocity:
         {
           VelocityData vel_data;
@@ -58,10 +81,16 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
           // send target velocity data to the control task
           xQueueOverwrite(task_shared_data_.target_velocity_message_queue, &vel_data);
 
-          // schedule the sensor read task to send the latest data back
+          SensorTaskEvent sensor_read_event{
+            .id = SensorTaskEventId::SensorRead,
+            .payload = vel_data.response_delay_ms
+          };
+
+          // NOTE: collisions with other event(s) not expected due to sequential messages request/response
+          // so we can safely overwrite the notification value with the new event
           xTaskNotify(
             task_shared_data_.sensor_read_task_handle,
-            static_cast<uint32_t>(vel_data.response_delay_ms),
+            std::bit_cast<uint32_t>(sensor_read_event),
             eSetValueWithOverwrite);
 
           return Result::Success;

@@ -19,15 +19,17 @@ class MPU6050 {
                    uint8_t device_address = mpu6050::kDeviceAddress)
       : bus_(std::move(bus)),
         address_(device_address),
-        delay_func_(delay_func),
-        connected_(false),
-        calibration_{} {}
+        delay_func_(delay_func) {}
 
   [[nodiscard]] bool isConnected() const { return connected_; }
 
   void disconnect() { connected_ = false; }
 
   bool connect() {
+    if (isConnected()) {
+      return true;  // Already connected
+    }
+
     // Physical ping verification via WHO_AM_I register check
     std::array<uint8_t, 1> identityToken{0};
     if (!bus_.readBlock(address_, mpu6050::kWhoAmIReg, identityToken) ||
@@ -46,12 +48,12 @@ class MPU6050 {
     return connected_;
   }
 
-  std::optional<mpu6050::IMUCalibration> calibrate(int sampleNum = 200,
-                                                   int sampleIntervalMs = 5) {
+  std::optional<mpu6050::IMUCalibration> calibrate(uint16_t sampleNum = 200,
+                                                   uint16_t sampleIntervalMs = 10) {
     float sumAx = 0.0f, sumAy = 0.0f, sumAz = 0.0f;
     float sumGx = 0.0f, sumGy = 0.0f, sumGz = 0.0f;
 
-    for (int i = 0; i < sampleNum; ++i) {
+    for (decltype(sampleNum) i = 0; i < sampleNum; ++i) {
       const auto dataOpt = read();
       if (!dataOpt.has_value()) {
         return std::nullopt;  // Return empty optional if reading fails
@@ -117,8 +119,8 @@ class MPU6050 {
   I2CBus bus_;
   uint8_t address_;
   mpu6050_delay_function delay_func_;
-  bool connected_;
-  mpu6050::IMUCalibration calibration_;
+  mpu6050::IMUCalibration calibration_{};
+  bool connected_{false};
 
   bool writeRegister(uint8_t reg, uint8_t value) {
     return bus_.writeByte(address_, reg, value);

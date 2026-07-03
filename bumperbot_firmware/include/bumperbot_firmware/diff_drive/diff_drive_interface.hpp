@@ -53,14 +53,14 @@ private:
   using TwoWheelsData = std::array<WheelData, 2>;
 
   bool validateWheelJointNamesConfig() const;
-  uint8_t waitDataAvailableToRead(const uint8_t wait_time_ms);
+  size_t waitDataAvailableToRead(const size_t wait_time_ms);
   bool processVelocityStateMessage();
   bool closeSerialConnection() noexcept;
   void computeResponseDelay(const rclcpp::Duration & period);
 
   template<typename TData>
   std::optional<TData> sendReceiveMessageData(
-      const TData& sendData, const size_t max_attempts);
+      const TData& sendData, const size_t max_attempts, const size_t wait_time_ms = 50);
 
   template<MsgId TargetId>
   bool sendReceiveMessage(const size_t max_attempts);
@@ -68,8 +68,8 @@ private:
   DiffDriveSerialTransceiver<BinaryMessageProtocol> transceiver_{};
   TwoWheelsData wheels_data_{};
   size_t velocity_read_error_count_{0};
-  uint8_t measured_roundtrip_ms_{0};
-  uint8_t communication_budget_ms_{0};
+  size_t measured_roundtrip_ms_{0};
+  size_t communication_budget_ms_{0};
   std::optional<uint8_t> response_delay_ms_{};
 
   // hardware parameters
@@ -81,18 +81,17 @@ private:
 
 template<typename TData>
 std::optional<TData> DiffDriveInterface::sendReceiveMessageData(
-      const TData& sendData, const size_t max_attempts)
+      const TData& sendData, const size_t max_attempts, const size_t wait_time_ms)
 {
   for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
     transceiver_.writeMessage(sendData);
 
-    constexpr size_t kWaitTimeMs{100};
-    measured_roundtrip_ms_ = waitDataAvailableToRead(kWaitTimeMs);
+    measured_roundtrip_ms_ = waitDataAvailableToRead(wait_time_ms);
 
     TData response_data;
     if (transceiver_.readLastMessageData(response_data)) {
       RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-        "Successfull req/resp attempt %zu took time %u milliseconds"
+        "Successfull req/resp attempt %zu took time %zu milliseconds"
           , attempt, measured_roundtrip_ms_);
 
       return std::optional<TData>{response_data};
@@ -112,7 +111,7 @@ bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
 
     if (transceiver_.template readLastMessage<TargetId>()) {
       RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-        "Successfull req/resp attempt %zu took time %u milliseconds"
+        "Successfull req/resp attempt %zu took time %zu milliseconds"
           , attempt, measured_roundtrip_ms_);
 
       return true;
