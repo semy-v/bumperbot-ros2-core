@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 #include "diff_drive_messages.hpp"
 
@@ -99,17 +100,18 @@ public:
     // Returns false if the requested type
     // doesn't match the received Message ID
     template <typename TData>
-    bool getPayload(TData& out_data) const {
+    std::optional<TData> getPayload() const {
         if (Registry::template getPayloadMsgId<TData>() != current_header_.msg_id) {
-            return false;
+            return std::nullopt;
         }
         
         if (sizeof(TData) != current_header_.payload_length) {
-            return false;
+            return std::nullopt;
         }
 
+        TData out_data;
         memcpy(&out_data, payload_buffer_, sizeof(TData));
-        return true;
+        return out_data;
     }
 
     // Force a manual reset of the stream parsing state

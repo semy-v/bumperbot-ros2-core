@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <format>
+#include <algorithm>
 
 #include "diff_drive_deserialize.hpp"
 #include "diff_drive_serialize.hpp"
@@ -22,6 +23,22 @@ public:
 
     ~BinaryMessageProtocol() = default;
 
+    // Get frame size for message with payload
+    template<typename TData>
+    static constexpr size_t getFrameSize() {
+        return DiffDriveMessageSerializer::getFrameSize<TData>();
+    }
+
+    // Get frame size for message with zero-payload
+    template<MsgId TargetId>
+    static constexpr size_t getFrameSize() {
+        return DiffDriveMessageSerializer::getFrameSize<TargetId>();
+    }
+
+    void reset() {
+        deserializer_.reset();
+    }
+
     // Serialize Non-Zero Payload Message
     template <typename TData>
     const std::vector<uint8_t>& serializeMessage(const TData& data) {
@@ -39,18 +56,17 @@ public:
     }
 
     template <typename TData>
-    bool deserializeLastStreamMessage(std::vector<uint8_t>& stream_buffer,
-                                      TData& out_data,
-                                      std::string& error_message)
+    std::optional<TData> deserializeLastStreamMessage(std::vector<uint8_t>& stream_buffer, std::string& error_message)
     {
         // reset deserialize stream state
-        stream_idx_ = 0;
+        track_idx_ = 0;
         valid_message_found_ = false;
+        std::optional<TData> out_data{};
 
-        while(find_next_message(stream_buffer, error_message)) {
+        while(deserializeNextMessage(stream_buffer, error_message)) {
             const auto msg_id = deserializer_.getReceivedMessageId();
             if (msg_id == DiffDriveMessageRegistry::getPayloadMsgId<TData>()) {
-                if (deserializer_.getPayload(out_data)) {
+                if (out_data = deserializer_.template getPayload<TData>(); out_data.has_value()) {
                     valid_message_found_ = true;
                 } else {
                     error_message = "Invalid message payload length";
@@ -60,9 +76,9 @@ public:
             }
         }
 
-        // Return true if any valid message found,
-        // even if the stream message is INCOMPLETE
-        return valid_message_found_;
+        // Return last found message even if
+        // overall stream message is INCOMPLETE
+        return out_data;
     }
 
     template <MsgId TargetId>
@@ -73,10 +89,10 @@ public:
             "This overload is strictly for zero-payload messages");
 
         // reset deserialize stream state
-        stream_idx_ = 0;
+        track_idx_ = 0;
         valid_message_found_ = false;
 
-        while(find_next_message(stream_buffer, error_message)) {
+        while(deserializeNextMessage(stream_buffer, error_message)) {
             if (TargetId == deserializer_.getReceivedMessageId()) {
                 valid_message_found_ = true;
             } else {
@@ -93,11 +109,11 @@ private:
     using DiffDriveMessageSerializer = MessageSerializer<DiffDriveMessageRegistry>;
     using DiffDriveMessageStreamDeserializer = MessageStreamDeserializer<DiffDriveMessageRegistry>;
 
-    bool find_next_message(std::vector<uint8_t>& stream_buffer, std::string& error_message);
+    bool deserializeNextMessage(std::vector<uint8_t>& stream_buffer, std::string& error_message);
     void processErrorState(const ProcessResult state, std::string& error_message);
 
     // deserialize members
-    size_t stream_idx_{0};
+    size_t track_idx_{0};
     bool valid_message_found_{false};
     DiffDriveMessageStreamDeserializer deserializer_;
 

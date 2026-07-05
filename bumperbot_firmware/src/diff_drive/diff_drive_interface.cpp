@@ -272,7 +272,8 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
 
   // set communication budget with added 2ms
   // for serial transmission and sensor read overhead
-  communication_budget_ms_ = measured_roundtrip_ms_ + 2;
+  communication_budget_ms_ =
+    static_cast<size_t>(std::lround(measured_roundtrip_ms_)) + 2u;
 
   RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
     "hardware activated, ready to receive commands");
@@ -423,24 +424,6 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
   return hardware_interface::return_type::OK;
 }
 
-size_t DiffDriveInterface::waitDataAvailableToRead(const size_t wait_time_ms) {
-  const auto start = std::chrono::steady_clock::now();
-
-  // Wait read data to become available
-  while (!transceiver_.isDataAvailable()) {
-      if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(wait_time_ms)) {
-          break; // Timeout
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-
-  const auto elapsed_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - start);
-
-  // Add 1ms to account for any rounding errors
-  return static_cast<size_t>(elapsed_time_ms.count());
-}
-
 bool DiffDriveInterface::processVelocityStateMessage() {
   if (!transceiver_.isDataAvailable()) {
     RCLCPP_WARN(rclcpp::get_logger("DiffDriveInterface"),
@@ -449,8 +432,8 @@ bool DiffDriveInterface::processVelocityStateMessage() {
     return false;
   }
 
-  DiffDriveStateData state;
-  if (!transceiver_.readLastMessageData(state)) {
+  const auto opt_state = transceiver_.readLastMessageData<DiffDriveStateData>();
+  if (!opt_state) {
     RCLCPP_WARN(rclcpp::get_logger("DiffDriveInterface"),
       "Failed to process wheels velocity state message: '%s'"
         , transceiver_.lastErrorMessage().c_str());
@@ -459,8 +442,8 @@ bool DiffDriveInterface::processVelocityStateMessage() {
     return false;
   }
 
-  wheels_data_[kRightWheelIndex].velocity_state = state.velocity.right_wheel_velocity;
-  wheels_data_[kLeftWheelIndex].velocity_state = state.velocity.left_wheel_velocity;
+  wheels_data_[kRightWheelIndex].velocity_state = opt_state.value().velocity.right_wheel_velocity;
+  wheels_data_[kLeftWheelIndex].velocity_state = opt_state.value().velocity.left_wheel_velocity;
   velocity_read_error_count_ = 0;
 
   return true;
@@ -492,6 +475,55 @@ void DiffDriveInterface::computeResponseDelay(const rclcpp::Duration & period) {
   RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
     "Response message delay: %u ms (Period: %.2f ms, Communication Budget: %zu ms)"
       , *response_delay_ms_, period.seconds() * 1000, communication_budget_ms_);
+}
+
+template<typename SendData, typename ReceiveData>
+std::optional<ReceiveData> DiffDriveInterface::sendReceiveMessageData(
+      const SendData& send_data, const size_t max_attempts, const size_t wait_time_ms)
+{
+  for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
+    transceiver_.writeMessage(send_data);
+
+    const auto start = std::chrono::steady_clock::now();
+    const auto opt_response_data = transceiver_.waitForNextMessageData<ReceiveData>(wait_time_ms);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    if (opt_response_data) {
+      measured_roundtrip_ms_ = std::chrono::duration<double, std::milli>(elapsed).count();
+
+      RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+        "Successfull req/resp attempt %zu took time %f milliseconds"
+          , attempt, measured_roundtrip_ms_);
+
+      return opt_response_data;
+    }
+  }
+
+  return std::nullopt;
+}
+
+template<MsgId TargetId>
+bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
+  for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
+    transceiver_.template writeMessage<TargetId>();
+
+    constexpr size_t kWaitTimeMs{100};
+    const auto start = std::chrono::steady_clock::now();
+    const bool result = transceiver_.waitForNextMessage<TargetId>(kWaitTimeMs);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    if (result) {
+      measured_roundtrip_ms_ = std::chrono::duration<double, std::milli>(elapsed).count();
+
+      RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+        "Successfull req/resp attempt %zu took time %f milliseconds"
+          , attempt, measured_roundtrip_ms_);
+
+      return true;
+    }
+  }
+
+  return false;
 }
 
 }  // namespace bumperbot_firmware

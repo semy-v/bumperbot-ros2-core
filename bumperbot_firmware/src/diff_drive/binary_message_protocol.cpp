@@ -2,7 +2,7 @@
 
 namespace bumperbot_firmware {
 
-bool BinaryMessageProtocol::find_next_message(
+bool BinaryMessageProtocol::deserializeNextMessage(
     std::vector<uint8_t>& stream_buffer, std::string& error_message)
 {
     if (stream_buffer.empty()) {
@@ -10,28 +10,21 @@ bool BinaryMessageProtocol::find_next_message(
         return false;
     }
 
-    const size_t stream_size = stream_buffer.size();
+    const size_t stream_size{stream_buffer.size()};
     auto state{ProcessResult::INCOMPLETE};
-
-    for (; stream_idx_ < stream_size; ++stream_idx_) {
-        state = deserializer_.processByte(stream_buffer[stream_idx_]);
+    for(; track_idx_ < stream_size; track_idx_++) {
+        state = deserializer_.processByte(stream_buffer[track_idx_]);
         if (ProcessResult::SUCCESS == state) {
-            ++stream_idx_;
+            error_message.clear();
             return true;
+        }
+        if (state != ProcessResult::INCOMPLETE) {
+            processErrorState(state, error_message);
         }
     }
 
-    // Clear consumed buffer after all bytes processed
+    // Clear the local stream_buffer as all the bytes were fed into statefull deserializer_.
     stream_buffer.clear();
-
-    if (valid_message_found_) {
-        // Clean up the error message if succeeded
-        // at any point in the stream
-        error_message.clear();
-    } else {
-        processErrorState(state, error_message);
-    }
-
     return false;
 }
 

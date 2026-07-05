@@ -68,7 +68,7 @@ private:
   DiffDriveSerialTransceiver<BinaryMessageProtocol> transceiver_{};
   TwoWheelsData wheels_data_{};
   size_t velocity_read_error_count_{0};
-  size_t measured_roundtrip_ms_{0};
+  double measured_roundtrip_ms_{0};
   size_t communication_budget_ms_{0};
   std::optional<uint8_t> response_delay_ms_{};
 
@@ -77,49 +77,6 @@ private:
   double wheels_min_velocity_;
   DiffDriveConfigData config_data_;
 };
-
-
-template<typename SendData, typename ReceiveData>
-std::optional<ReceiveData> DiffDriveInterface::sendReceiveMessageData(
-      const SendData& send_data, const size_t max_attempts, const size_t wait_time_ms)
-{
-  for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
-    transceiver_.writeMessage(send_data);
-
-    measured_roundtrip_ms_ = waitDataAvailableToRead(wait_time_ms);
-
-    ReceiveData response_data;
-    if (transceiver_.readLastMessageData(response_data)) {
-      RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-        "Successfull req/resp attempt %zu took time %zu milliseconds"
-          , attempt, measured_roundtrip_ms_);
-
-      return std::optional<ReceiveData>{response_data};
-    }
-  }
-
-  return std::nullopt;
-}
-
-template<MsgId TargetId>
-bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
-  for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
-    transceiver_.template writeMessage<TargetId>();
-
-    constexpr size_t kWaitTimeMs{100};
-    measured_roundtrip_ms_ = waitDataAvailableToRead(kWaitTimeMs);
-
-    if (transceiver_.template readLastMessage<TargetId>()) {
-      RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
-        "Successfull req/resp attempt %zu took time %zu milliseconds"
-          , attempt, measured_roundtrip_ms_);
-
-      return true;
-    }
-  }
-
-  return false;
-}
 
 }  // namespace bumperbot_firmware
 

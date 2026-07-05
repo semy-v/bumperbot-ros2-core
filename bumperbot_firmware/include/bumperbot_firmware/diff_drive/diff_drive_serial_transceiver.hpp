@@ -1,6 +1,7 @@
 #ifndef DIFF_DRIVE_SERIAL_TRANSCEIVER_HPP
 #define DIFF_DRIVE_SERIAL_TRANSCEIVER_HPP
 
+#include <format>
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -10,20 +11,19 @@
 
 namespace bumperbot_firmware {
 
+namespace {
+    constexpr size_t kMinReadWaitTimeMs{1};
+} // namespace
+
 template <ProtocolCodec CodecPolicy>
 class DiffDriveSerialTransceiver {
 public:
     DiffDriveSerialTransceiver() {
-        constexpr size_t kMaxReceiveBufferSize{256};
+        constexpr size_t kReserveBufferSize{256};
         constexpr size_t kMaxErrorMessageLength{64};
 
-        receive_buffer_.reserve(kMaxReceiveBufferSize);
+        receive_buffer_.reserve(kReserveBufferSize);
         error_message_.reserve(kMaxErrorMessageLength);
-    }
-
-    bool isDataAvailable() {
-        // return serial_.IsDataAvailable();
-        return serial_.GetNumberOfBytesAvailable();
     }
 
     void openPort(const std::string& port, const LibSerial::BaudRate& baudRate) {
@@ -37,95 +37,125 @@ public:
         }
     }
 
-    const std::string& lastErrorMessage() const {
+    [[nodiscard]] bool isDataAvailable() {
+        return serial_.GetNumberOfBytesAvailable();
+    }
+
+    [[nodiscard]] const std::string& lastErrorMessage() const {
         return error_message_;
     }
 
     template <typename TData>
     void writeMessage(const TData& data) {
-        serial_.Write(
-            codec_.template serializeMessage<TData>(data));
+        writeRaw(codec_.template serializeMessage<TData>(data));
     }
 
     template <MsgId TargetId>
     void writeMessage() {
-        serial_.Write(codec_.template serializeMessage<TargetId>());
+        writeRaw(codec_.template serializeMessage<TargetId>());
     }
 
     template <typename TData>
-    bool readLastMessageData(TData& out_data) {
-        bool result{false};
-        error_message_.clear();
+    std::optional<TData> waitForNextMessageData(const size_t wait_time_ms) {
+        // If ANY message already in the buffer, then read and discard ALL of them
+        readLastMessageData<TData>();
 
-        if (not receive_buffer_.empty()) {
-            // consume possible remaining bytes from previous run
-            // e.g. if the exception occured during serial read
-            result = codec_.deserializeLastStreamMessage(
-                receive_buffer_, out_data, error_message_);
-
-            if (not receive_buffer_.empty()) {
-                // not all bytes from previous run processed
-                error_message_ = "Previous message process error";
-                receive_buffer_.clear();
-            }
+        // Wait and read next expected message
+        const size_t expected_bytes = codec_.template getFrameSize<TData>();
+        if (!readExactBytes(expected_bytes, wait_time_ms)) {
+            return std::nullopt;
         }
 
-        if (readBytesAvailable()) {
-            result |= codec_.deserializeLastStreamMessage(
-                receive_buffer_, out_data, error_message_);
+        return codec_.template deserializeLastStreamMessage<TData>(
+            receive_buffer_, error_message_);
+    }
+
+    template <MsgId TargetId>
+    bool waitForNextMessage(const size_t wait_time_ms) {
+        // If ANY message already in the buffer, then read and discard ALL of them
+        readLastMessage<TargetId>();
+
+        // Wait and read next expected message
+        const size_t expected_bytes = codec_.template getFrameSize<TargetId>();
+        if (!readExactBytes(expected_bytes, wait_time_ms)) {
+            return false;
         }
 
-        return result;
+        return codec_.template deserializeLastStreamMessage<TargetId>(
+            receive_buffer_, error_message_);
+    }
+
+    template <typename TData>
+    std::optional<TData> readLastMessageData() {
+        return processStream<std::optional<TData>>([this](std::optional<TData>& result) {
+            result = codec_.template deserializeLastStreamMessage<TData>(receive_buffer_, error_message_);
+            return result.has_value();
+        });
     }
 
     template <MsgId TargetId>
     bool readLastMessage() {
-        bool result{false};
-        error_message_.clear();
-
-        if (not receive_buffer_.empty()) {
-            // consume possible remaining bytes from previous run
-            // e.g. if the exception occured during serial read
-            result = codec_.template deserializeLastStreamMessage<TargetId>(
-                receive_buffer_, error_message_);
-
-            if (not receive_buffer_.empty()) {
-                // not all bytes from previous run processed
-                error_message_ = "Previous message process error";
-                receive_buffer_.clear();
-            }
-        }
-
-        if (readBytesAvailable()) {
-            result |= codec_.template deserializeLastStreamMessage<TargetId>(
-                receive_buffer_, error_message_);
-        }
-
-        return result;
+        return processStream<bool>([this](bool& result) {
+            result = codec_.template deserializeLastStreamMessage<TargetId>(receive_buffer_, error_message_);
+            return result;
+        });
     }
 
 private:
-    bool readBytesAvailable() {
-        const size_t bytes_available = 
-            serial_.GetNumberOfBytesAvailable();
-        if (bytes_available == 0) {
-            error_message_ = "No message available for read";
-            return false;
-        }
-
-        // Limit read capacity to prevent buffer reallocation
-        const size_t bytes_to_read = std::min(
-            bytes_available, receive_buffer_.capacity());
-
-        serial_.Read(receive_buffer_, bytes_to_read, 1);
-
-        return true;
-    }
-
     LibSerial::SerialPort serial_;
-    CodecPolicy codec_; 
+    CodecPolicy codec_;
     std::vector<uint8_t> receive_buffer_;
     std::string error_message_;
+
+    void setError(std::string_view msg) {
+        error_message_ = msg;
+    }
+
+    void writeRaw(const std::vector<uint8_t>& payload) {
+        serial_.Write(payload);
+    }
+
+    bool readExactBytes(size_t bytes_to_read, size_t wait_time_ms) {
+        if (bytes_to_read == 0) {
+            return true;
+        }
+
+        try {
+            serial_.Read(receive_buffer_, bytes_to_read, wait_time_ms);
+            return true;
+        } catch (const LibSerial::ReadTimeout&) {
+            setError("Serial read timeout");
+            return false;
+        } catch (const std::exception& e) {
+            setError(std::format("Unexpected read error: {}", e.what()));
+            return false;
+        }
+    }
+
+    void readAvailableBytes() {
+        const size_t available = serial_.GetNumberOfBytesAvailable();
+        if (available > 0) {
+            serial_.Read(receive_buffer_, available, kMinReadWaitTimeMs);
+        }
+    }
+
+    template <typename ReturnType, typename DeserializerFunc>
+    ReturnType processStream(DeserializerFunc&& deserialize) {
+        error_message_.clear();
+        ReturnType latest_response{};
+
+        // Pull ALL currently available bytes from the OS serial buffer into receive_buffer_.
+        // Note: Any incomplete frame bytes from the previous cycle are ALREADY safely stored
+        // inside codec_.deserializer_'s internal state machine.
+        readAvailableBytes();
+
+        // Drain stream_buffer internally and return the newest frame.
+        // Incomplete trailing bytes are ingested into the stateful deserializer,
+        // and receive_buffer_ is guaranteed to be left empty for the next read cycle.
+        deserialize(latest_response);
+
+        return latest_response;
+    }
 };
 
 } // namespace bumperbot_firmware

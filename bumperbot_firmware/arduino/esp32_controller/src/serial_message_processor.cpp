@@ -36,28 +36,28 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
 
             switch (next_msg_id) {
                 case MsgId::DiffDriveConfig: {
-                    DiffDriveConfigData config_data;
-                    if (!deserializer_.getPayload(config_data)) {
+                    const auto opt_config = deserializer_.getPayload<DiffDriveConfigData>();
+                    if (!opt_config.has_value()) {
                         return Result::MessageInvalid;
                     }
 
                     // send config data to the control task
-                    xQueueOverwrite(task_shared_data_.diff_drive_config_queue, &config_data);
+                    xQueueOverwrite(task_shared_data_.diff_drive_config_queue, &opt_config.value());
 
                     // send same config data message in response
-                    sendSerialMessage(config_data);
+                    sendSerialMessage(opt_config.value());
 
                     return Result::Success;
                 }
                 case MsgId::ImuConfig: {
-                    ImuConfigData imu_config_data;
-                    if (!deserializer_.getPayload(imu_config_data)) {
+                    const auto opt_imu_config = deserializer_.getPayload<ImuConfigData>();
+                    if (!opt_imu_config.has_value()) {
                         return Result::MessageInvalid;
                     }
 
                     const SensorTaskEvent imu_config_event{
                         .id = SensorTaskEventId::ImuConfig,
-                        .payload = imu_config_data.calibrate_period_ms};
+                        .payload = opt_imu_config.value().calibrate_period_ms};
 
                     // Collisions with other event(s) not expected due to sequential request/response messages
                     // so we can safely overwrite the notification value with the new event
@@ -69,17 +69,17 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
                     return Result::Success;
                 }
                 case MsgId::DiffDriveCommand: {
-                    DiffDriveCommandData command;
-                    if (!deserializer_.getPayload(command)) {
+                    const auto opt_command = deserializer_.getPayload<DiffDriveCommandData>();
+                    if (!opt_command.has_value()) {
                         return Result::MessageInvalid;
                     }
 
                     // send target velocity data to the control task
-                    xQueueOverwrite(task_shared_data_.diff_drive_command_queue, &command.velocity);
+                    xQueueOverwrite(task_shared_data_.diff_drive_command_queue, &opt_command.value().velocity);
 
                     SensorTaskEvent sensor_read_event{
                         .id = SensorTaskEventId::SensorRead,
-                        .payload = command.response_delay_ms};
+                        .payload = opt_command.value().response_delay_ms};
 
                     // Collisions with other event(s) not expected due to sequential request/response messages 
                     // so we can safely overwrite the notification value with the new event
