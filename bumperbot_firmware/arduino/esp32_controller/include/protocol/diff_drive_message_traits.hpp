@@ -88,18 +88,13 @@ struct MessageRegistry {
     }
 };
 
-// A trait and concept to identify a valid MessageRegistry type
 template <typename T>
-struct is_message_registry {
-    static constexpr bool value = false; 
-};
+struct is_message_registry : std::false_type {};
 
 template <typename... MsgDefs>
-struct is_message_registry<MessageRegistry<MsgDefs...>> {
-    static constexpr bool value = true;
-};
+struct is_message_registry<MessageRegistry<MsgDefs...>> : std::true_type {};
 
 template<typename T>
-concept MessageRegistryConcept = is_message_registry<T>::value;
+concept MessageRegistryConcept = is_message_registry<std::remove_cvref_t<T>>::value;
 
 #endif // DIFF_DRIVE_MESSAGE_TRAITS_HPP

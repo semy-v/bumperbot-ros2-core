@@ -13,8 +13,9 @@
 #include <pluginlib/class_list_macros.hpp>
 
 #include "diff_drive_data.hpp"
-#include "binary_message_protocol.hpp"
-#include "diff_drive_serial_transceiver.hpp"
+#include "diff_drive_messages.hpp"
+#include "serial_message_protocol.hpp"
+#include "serial_message_transceiver.hpp"
 
 
 namespace bumperbot_firmware
@@ -22,11 +23,11 @@ namespace bumperbot_firmware
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
-class DiffDriveInterface : public hardware_interface::SystemInterface
+class RobotSystemInterface : public hardware_interface::SystemInterface
 {
 public:
-  DiffDriveInterface();
-  virtual ~DiffDriveInterface();
+  RobotSystemInterface();
+  virtual ~RobotSystemInterface();
 
   // Implementing rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
   CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams & params) override;
@@ -51,6 +52,7 @@ private:
   };
 
   using TwoWheelsData = std::array<WheelData, 2>;
+  using SystemMessageSerialProtocol = SerialMessageProtocol<DiffDriveMessageRegistry>;
 
   bool validateWheelJointNamesConfig() const;
   size_t waitDataAvailableToRead(const size_t wait_time_ms);
@@ -65,7 +67,7 @@ private:
   template<MsgId TargetId>
   bool sendReceiveMessage(const size_t max_attempts);
 
-  DiffDriveSerialTransceiver<BinaryMessageProtocol> transceiver_{};
+  SerialMessageTransceiver<SystemMessageSerialProtocol> transceiver_{};
   TwoWheelsData wheels_data_{};
   size_t velocity_read_error_count_{0};
   double measured_roundtrip_ms_{0};

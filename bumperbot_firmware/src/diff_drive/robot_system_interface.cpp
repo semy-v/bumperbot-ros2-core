@@ -1,5 +1,5 @@
 /**
- * @file diff_drive_interface.cpp
+ * @file robot_system_interface.cpp
  *
  * SERIAL COMMUNICATION PROTOCOL SEQUENCE (ROS 2 PERSPECTIVE)
  * ----------------------------------------------------------
@@ -30,7 +30,7 @@
  * - Safely closes the serial port connection.
  */
 
-#include "bumperbot_firmware/diff_drive/diff_drive_interface.hpp"
+#include "bumperbot_firmware/diff_drive/robot_system_interface.hpp"
 
 #include <algorithm>
 #include <string_view>
@@ -90,16 +90,16 @@ T getHwParam(
 namespace bumperbot_firmware
 {
 
-DiffDriveInterface::DiffDriveInterface() {
+RobotSystemInterface::RobotSystemInterface() {
   static_assert(TwoWheelsData{}.size() == kWheelNames.size(),
     "Differential drive interface must operate 2 wheels");
 }
 
-DiffDriveInterface::~DiffDriveInterface() {
+RobotSystemInterface::~RobotSystemInterface() {
   std::ignore = closeSerialConnection();
 }
 
-[[nodiscard]] bool DiffDriveInterface::validateWheelJointNamesConfig() const {
+[[nodiscard]] bool RobotSystemInterface::validateWheelJointNamesConfig() const {
   for (const auto& expected_name : kWheelNames) {
     const bool found = std::any_of(cbegin(info_.joints), cend(info_.joints),
       [&expected_name](const auto& joint_info) {
@@ -107,7 +107,7 @@ DiffDriveInterface::~DiffDriveInterface() {
       });
     
     if (not found) {
-      RCLCPP_FATAL(rclcpp::get_logger("DiffDriveInterface"),
+      RCLCPP_FATAL(rclcpp::get_logger("RobotSystemInterface"),
             "Wheel joint '%s' not found in joints configuration!",
             std::string(expected_name).c_str()
         );
@@ -118,10 +118,10 @@ DiffDriveInterface::~DiffDriveInterface() {
   return true;
 }
 
-CallbackReturn DiffDriveInterface::on_init(
+CallbackReturn RobotSystemInterface::on_init(
   const hardware_interface::HardwareComponentInterfaceParams & params)
 {
-  auto logger = rclcpp::get_logger("DiffDriveInterface");
+  auto logger = rclcpp::get_logger("RobotSystemInterface");
   RCLCPP_INFO(logger, "Initializing hardware.");
 
   CallbackReturn result = hardware_interface::SystemInterface::on_init(params);
@@ -168,8 +168,8 @@ CallbackReturn DiffDriveInterface::on_init(
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &) {
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "Configuring hardware ...");
+CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State &) {
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "Configuring hardware ...");
 
   transceiver_.openPort(port_, LibSerial::BaudRate::BAUD_115200);
 
@@ -186,32 +186,32 @@ CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &)
     .result = true
   };
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), 
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), 
     "Sending IMU configuration message with calibration period %zu ms (keep robot flat on the ground)..."
       , kImuCalibrationPeriodMs);
   const auto imu_config_resp_opt =
     sendReceiveMessageData(imu_config_data, kMaxImuConfigAttempts, kImuConfigReqRespTimeMs);
   if (false == imu_config_resp_opt.has_value()) {
-    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "IMU configuration response message error: '%s'"
           , transceiver_.lastErrorMessage().c_str());
     return CallbackReturn::ERROR;
   }
   if (false == imu_config_resp_opt.value().result) {
-    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "IMU configuration/calibration failed");
     return CallbackReturn::ERROR;
   }
 
   // Next send configuration message and wait for echo response
   constexpr size_t kMaxConfigHandshakeAttempts{10};
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), 
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), 
     "Sending Wheels configuration message, waiting for echo response (max %zu attempts) ..."
       , kMaxConfigHandshakeAttempts);
 
   const auto opt_response = sendReceiveMessageData(config_data_, kMaxConfigHandshakeAttempts);
   if (not opt_response) {
-    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "Configuration response message error: '%s'"
           , transceiver_.lastErrorMessage().c_str());
     return CallbackReturn::ERROR;
@@ -219,7 +219,7 @@ CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &)
 
   const auto response = *opt_response;
   if (response != config_data_) {
-    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "Response config mismatch: PID rate %.1f Hz | "
         "Right wheel config: { kp - %.1f, ki - %.1f, kd - %.1f } | "
         "Left wheel config: { kp - %.1f, ki - %.1f, kd - %.1f }" , response.pid_rate
@@ -228,12 +228,12 @@ CallbackReturn DiffDriveInterface::on_configure(const rclcpp_lifecycle::State &)
     return CallbackReturn::ERROR;
   }
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "hardware configured");
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "hardware configured");
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) {
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "Activating hardware ...");
+CallbackReturn RobotSystemInterface::on_activate(const rclcpp_lifecycle::State &) {
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "Activating hardware ...");
 
   // Reset commands and states
   for (auto& wheel_data: wheels_data_) {
@@ -254,7 +254,7 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
         kZeroWheelVelocity, kMaxReqRespAttempts);
 
   if (not opt_response) {
-    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "Activation response message error: '%s'"
           , transceiver_.lastErrorMessage().c_str());
     return CallbackReturn::FAILURE;
@@ -265,7 +265,7 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
   transceiver_.writeMessage(kZeroWheelVelocity);
 
   const auto response = *opt_response;
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
     "Current wheels angular velocity (rad/sec): right wheel %.1f | left wheel %.1f"
         , response.velocity.right_wheel_velocity
         , response.velocity.left_wheel_velocity);
@@ -275,7 +275,7 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
   communication_budget_ms_ =
     static_cast<size_t>(std::lround(measured_roundtrip_ms_)) + 2u;
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
     "hardware activated, ready to receive commands");
 
   // Reset response delay setup flag
@@ -285,55 +285,55 @@ CallbackReturn DiffDriveInterface::on_activate(const rclcpp_lifecycle::State &) 
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn DiffDriveInterface::on_deactivate(const rclcpp_lifecycle::State &) {
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "Deactivating hardware.");
+CallbackReturn RobotSystemInterface::on_deactivate(const rclcpp_lifecycle::State &) {
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "Deactivating hardware.");
 
   constexpr size_t kMaxReqRespAttempts{5};
   if (false == sendReceiveMessage<MsgId::Deactivate>(kMaxReqRespAttempts)) {
-    RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "Deactivation response message error: '%s'"
           , transceiver_.lastErrorMessage().c_str());
     return CallbackReturn::ERROR;
   }
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
               "hardware deactivated");
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn DiffDriveInterface::on_cleanup(const rclcpp_lifecycle::State &) {
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "Cleaning up hardware.");
+CallbackReturn RobotSystemInterface::on_cleanup(const rclcpp_lifecycle::State &) {
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "Cleaning up hardware.");
 
   transceiver_.closePort();
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
     "hardware cleaned up, serial port closed.");
   
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn DiffDriveInterface::on_shutdown(const rclcpp_lifecycle::State &) {
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "Shutting down hardware.");
+CallbackReturn RobotSystemInterface::on_shutdown(const rclcpp_lifecycle::State &) {
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "Shutting down hardware.");
 
   transceiver_.closePort();
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "hardware shut down, serial port closed.");
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "hardware shut down, serial port closed.");
 
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn DiffDriveInterface::on_error(const rclcpp_lifecycle::State &) {
-  RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"), "Error occured in hardware.");
+CallbackReturn RobotSystemInterface::on_error(const rclcpp_lifecycle::State &) {
+  RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"), "Error occured in hardware.");
 
   if (closeSerialConnection()) {
-    RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"), "hardware error handled, serial port closed.");
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"), "hardware error handled, serial port closed.");
     return CallbackReturn::SUCCESS;
   }
 
   return CallbackReturn::FAILURE;
 }
 
-std::vector<hardware_interface::StateInterface> DiffDriveInterface::export_state_interfaces() {
+std::vector<hardware_interface::StateInterface> RobotSystemInterface::export_state_interfaces() {
   std::vector<hardware_interface::StateInterface> state_interfaces;
 
   for (size_t i = 0; i < kWheelNames.size(); i++) {
@@ -346,7 +346,7 @@ std::vector<hardware_interface::StateInterface> DiffDriveInterface::export_state
   return state_interfaces;
 }
 
-std::vector<hardware_interface::CommandInterface> DiffDriveInterface::export_command_interfaces() {
+std::vector<hardware_interface::CommandInterface> RobotSystemInterface::export_command_interfaces() {
   std::vector<hardware_interface::CommandInterface> command_interfaces;
 
   // Provide only a velocity command interface
@@ -358,14 +358,14 @@ std::vector<hardware_interface::CommandInterface> DiffDriveInterface::export_com
   return command_interfaces;
 }
 
-hardware_interface::return_type DiffDriveInterface::read(const rclcpp::Time &,
+hardware_interface::return_type RobotSystemInterface::read(const rclcpp::Time &,
                                                           const rclcpp::Duration & period)
 {
   constexpr size_t kVelocityReadErrorThreshold{10};
 
   if (!processVelocityStateMessage()) {
     if (velocity_read_error_count_ > kVelocityReadErrorThreshold) {
-      RCLCPP_ERROR(rclcpp::get_logger("DiffDriveInterface"),
+      RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "Exceeded maximum velocity message read error threshold: %zu"
           , kVelocityReadErrorThreshold);
       return hardware_interface::return_type::ERROR;
@@ -381,7 +381,7 @@ hardware_interface::return_type DiffDriveInterface::read(const rclcpp::Time &,
   return hardware_interface::return_type::OK;
 }
 
-hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
+hardware_interface::return_type RobotSystemInterface::write(const rclcpp::Time &,
                                                           const rclcpp::Duration &period)
 {
   if (!response_delay_ms_) {
@@ -424,9 +424,9 @@ hardware_interface::return_type DiffDriveInterface::write(const rclcpp::Time &,
   return hardware_interface::return_type::OK;
 }
 
-bool DiffDriveInterface::processVelocityStateMessage() {
+bool RobotSystemInterface::processVelocityStateMessage() {
   if (!transceiver_.isDataAvailable()) {
-    RCLCPP_WARN(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_WARN(rclcpp::get_logger("RobotSystemInterface"),
       "Wheels velocity state message not available, count: '%lu'"
         , ++velocity_read_error_count_);
     return false;
@@ -434,7 +434,7 @@ bool DiffDriveInterface::processVelocityStateMessage() {
 
   const auto opt_state = transceiver_.readLastMessageData<DiffDriveStateData>();
   if (!opt_state) {
-    RCLCPP_WARN(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_WARN(rclcpp::get_logger("RobotSystemInterface"),
       "Failed to process wheels velocity state message: '%s'"
         , transceiver_.lastErrorMessage().c_str());
 
@@ -449,12 +449,12 @@ bool DiffDriveInterface::processVelocityStateMessage() {
   return true;
 }
 
-bool DiffDriveInterface::closeSerialConnection() noexcept {
+bool RobotSystemInterface::closeSerialConnection() noexcept {
   bool result{true};
   try {
     transceiver_.closePort();
   } catch (...) {
-    RCLCPP_FATAL(rclcpp::get_logger("DiffDriveInterface"),
+    RCLCPP_FATAL(rclcpp::get_logger("RobotSystemInterface"),
             "Exception occured while closing connection at port: %s"
                 , port_.c_str());
     result = false;
@@ -463,7 +463,7 @@ bool DiffDriveInterface::closeSerialConnection() noexcept {
   return result;
 }
 
-void DiffDriveInterface::computeResponseDelay(const rclcpp::Duration & period) {
+void RobotSystemInterface::computeResponseDelay(const rclcpp::Duration & period) {
   // Calculate the response delay to account for the roundtrip time
   // and ensure the Arduino has enough time to process the command
   const auto period_ms = static_cast<size_t>(
@@ -472,13 +472,13 @@ void DiffDriveInterface::computeResponseDelay(const rclcpp::Duration & period) {
   response_delay_ms_ = (period_ms > communication_budget_ms_)
     ? static_cast<uint8_t>(period_ms - communication_budget_ms_) : 0;
 
-  RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
     "Response message delay: %u ms (Period: %.2f ms, Communication Budget: %zu ms)"
       , *response_delay_ms_, period.seconds() * 1000, communication_budget_ms_);
 }
 
 template<typename SendData, typename ReceiveData>
-std::optional<ReceiveData> DiffDriveInterface::sendReceiveMessageData(
+std::optional<ReceiveData> RobotSystemInterface::sendReceiveMessageData(
       const SendData& send_data, const size_t max_attempts, const size_t wait_time_ms)
 {
   for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
@@ -491,7 +491,7 @@ std::optional<ReceiveData> DiffDriveInterface::sendReceiveMessageData(
     if (opt_response_data) {
       measured_roundtrip_ms_ = std::chrono::duration<double, std::milli>(elapsed).count();
 
-      RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+      RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
         "Successfull req/resp attempt %zu took time %f milliseconds"
           , attempt, measured_roundtrip_ms_);
 
@@ -503,7 +503,7 @@ std::optional<ReceiveData> DiffDriveInterface::sendReceiveMessageData(
 }
 
 template<MsgId TargetId>
-bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
+bool RobotSystemInterface::sendReceiveMessage(const size_t max_attempts) {
   for (size_t attempt = 1; attempt <= max_attempts; attempt++) {
     transceiver_.template writeMessage<TargetId>();
 
@@ -515,7 +515,7 @@ bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
     if (result) {
       measured_roundtrip_ms_ = std::chrono::duration<double, std::milli>(elapsed).count();
 
-      RCLCPP_INFO(rclcpp::get_logger("DiffDriveInterface"),
+      RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
         "Successfull req/resp attempt %zu took time %f milliseconds"
           , attempt, measured_roundtrip_ms_);
 
@@ -529,4 +529,4 @@ bool DiffDriveInterface::sendReceiveMessage(const size_t max_attempts) {
 }  // namespace bumperbot_firmware
 
 #include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(bumperbot_firmware::DiffDriveInterface, hardware_interface::SystemInterface)
+PLUGINLIB_EXPORT_CLASS(bumperbot_firmware::RobotSystemInterface, hardware_interface::SystemInterface)

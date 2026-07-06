@@ -1,5 +1,5 @@
-#ifndef DIFF_DRIVE_SERIAL_TRANSCEIVER_HPP
-#define DIFF_DRIVE_SERIAL_TRANSCEIVER_HPP
+#ifndef SERIAL_MESSAGE_TRANSCEIVER_HPP
+#define SERIAL_MESSAGE_TRANSCEIVER_HPP
 
 #include <format>
 #include <vector>
@@ -7,18 +7,16 @@
 #include <algorithm>
 #include <libserial/SerialPort.h>
 
-#include "protocol_codec_concept.hpp"
-
 namespace bumperbot_firmware {
 
 namespace {
     constexpr size_t kMinReadWaitTimeMs{1};
 } // namespace
 
-template <ProtocolCodec CodecPolicy>
-class DiffDriveSerialTransceiver {
+template <typename SerialProtocol>
+class SerialMessageTransceiver {
 public:
-    DiffDriveSerialTransceiver() {
+    SerialMessageTransceiver() {
         constexpr size_t kReserveBufferSize{256};
         constexpr size_t kMaxErrorMessageLength{64};
 
@@ -47,12 +45,12 @@ public:
 
     template <typename TData>
     void writeMessage(const TData& data) {
-        writeRaw(codec_.template serializeMessage<TData>(data));
+        writeRaw(protocol_.template serializeMessage<TData>(data));
     }
 
     template <MsgId TargetId>
     void writeMessage() {
-        writeRaw(codec_.template serializeMessage<TargetId>());
+        writeRaw(protocol_.template serializeMessage<TargetId>());
     }
 
     template <typename TData>
@@ -61,12 +59,12 @@ public:
         readLastMessageData<TData>();
 
         // Wait and read next expected message
-        const size_t expected_bytes = codec_.template getFrameSize<TData>();
+        const size_t expected_bytes = protocol_.template getFrameSize<TData>();
         if (!readExactBytes(expected_bytes, wait_time_ms)) {
             return std::nullopt;
         }
 
-        return codec_.template deserializeLastStreamMessage<TData>(
+        return protocol_.template deserializeLastStreamMessage<TData>(
             receive_buffer_, error_message_);
     }
 
@@ -76,19 +74,19 @@ public:
         readLastMessage<TargetId>();
 
         // Wait and read next expected message
-        const size_t expected_bytes = codec_.template getFrameSize<TargetId>();
+        const size_t expected_bytes = protocol_.template getFrameSize<TargetId>();
         if (!readExactBytes(expected_bytes, wait_time_ms)) {
             return false;
         }
 
-        return codec_.template deserializeLastStreamMessage<TargetId>(
+        return protocol_.template deserializeLastStreamMessage<TargetId>(
             receive_buffer_, error_message_);
     }
 
     template <typename TData>
     std::optional<TData> readLastMessageData() {
         return processStream<std::optional<TData>>([this](std::optional<TData>& result) {
-            result = codec_.template deserializeLastStreamMessage<TData>(receive_buffer_, error_message_);
+            result = protocol_.template deserializeLastStreamMessage<TData>(receive_buffer_, error_message_);
             return result.has_value();
         });
     }
@@ -96,14 +94,14 @@ public:
     template <MsgId TargetId>
     bool readLastMessage() {
         return processStream<bool>([this](bool& result) {
-            result = codec_.template deserializeLastStreamMessage<TargetId>(receive_buffer_, error_message_);
+            result = protocol_.template deserializeLastStreamMessage<TargetId>(receive_buffer_, error_message_);
             return result;
         });
     }
 
 private:
     LibSerial::SerialPort serial_;
-    CodecPolicy codec_;
+    SerialProtocol protocol_;
     std::vector<uint8_t> receive_buffer_;
     std::string error_message_;
 
@@ -146,7 +144,7 @@ private:
 
         // Pull ALL currently available bytes from the OS serial buffer into receive_buffer_.
         // Note: Any incomplete frame bytes from the previous cycle are ALREADY safely stored
-        // inside codec_.deserializer_'s internal state machine.
+        // inside protocol_.deserializer_'s internal state machine.
         readAvailableBytes();
 
         // Drain stream_buffer internally and return the newest frame.
@@ -160,4 +158,4 @@ private:
 
 } // namespace bumperbot_firmware
 
-#endif // DIFF_DRIVE_SERIAL_TRANSCEIVER_HPP
+#endif // SERIAL_MESSAGE_TRANSCEIVER_HPP
