@@ -42,15 +42,16 @@ public:
     template <typename TData>
     const std::vector<uint8_t>& serializeMessage(const TData& data) {
         send_msg_buffer_.resize(SystemMessageSerializer::template getFrameSize<TData>());
-        SystemMessageSerializer::template serialize(data, send_msg_buffer_.data());
+        SystemMessageSerializer::template serialize(data, send_msg_buffer_);
         return send_msg_buffer_;
     }
 
     // Serialize Zero-Payload Message
     template <MsgId TargetId>
     const std::vector<uint8_t>& serializeMessage() {
-        send_msg_buffer_.resize(SystemMessageSerializer::template getFrameSize<TargetId>());
-        SystemMessageSerializer::template serialize<TargetId>(send_msg_buffer_.data());
+        std::span<const uint8_t> serial_message =
+            SystemMessageSerializer::template serialize<TargetId>();
+        send_msg_buffer_.assign(serial_message.begin(), serial_message.end());
         return send_msg_buffer_;
     }
 

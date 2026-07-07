@@ -2,7 +2,7 @@
 #define SERIAL_MESSAGE_PROCESSOR_HPP
 
 #include <Arduino.h>
-
+#include <array>
 #include "protocol/diff_drive_messages.hpp"
 #include "protocol/diff_drive_serialize.hpp"
 #include "protocol/diff_drive_deserialize.hpp"
@@ -13,18 +13,16 @@ using DiffDriveMessageSerializer = MessageSerializer<DiffDriveMessageRegistry>;
 
 template<typename TData>
 void sendSerialMessage(const TData& message_data) {
-    uint8_t message[DiffDriveMessageSerializer::getFrameSize<TData>()];
-    DiffDriveMessageSerializer::serialize(message_data, message);
-    Serial.write(message, sizeof(message));
+    std::array<uint8_t, DiffDriveMessageSerializer::getFrameSize<TData>()> serial_message;
+    DiffDriveMessageSerializer::serialize(message_data, serial_message);
+    Serial.write(serial_message.data(), serial_message.size());
 }
 
 template<MsgId Id>
 void sendSerialMessage() {
-    uint8_t message[DiffDriveMessageSerializer::template getFrameSize<Id>()];
-    DiffDriveMessageSerializer::template serialize<Id>(message);
-    Serial.write(message, sizeof(message));
+    auto serial_message = DiffDriveMessageSerializer::template serialize<Id>();
+    Serial.write(serial_message.data(), serial_message.size());
 }
-
 
 // Serial input message process
 constexpr MsgId AnyMsgId = MsgId::End;

@@ -2,25 +2,30 @@
 #define DIFF_DRIVE_DESERIALIZE_HPP
 
 #include <bit>
+#include <span>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <optional>
 
 #include "diff_drive_messages.hpp"
 
+static_assert(std::endian::native == std::endian::little,
+    "Message protocol requires a little-endian target platform because serialization uses native object representation");
+
 // Represents the result of feeding a single byte into the deserializer
 enum class ProcessResult {
     INCOMPLETE,   // Frame is not yet fully received
     SUCCESS,      // A valid frame was completely received and CRC verified
     ERROR_SYNC,   // Lost synchronization (invalid start byte or unexpected data)
-    ERROR_LENGTH, // Header length exceeded maximum allowed buffer size
+    ERROR_LENGTH, // Header length mismatch message type payload length
     ERROR_CRC     // Payload failed CRC validation
 };
 
 template <MessageRegistryConcept Registry>
 class MessageStreamDeserializer {
 public:
-    enum State {
+    enum State : uint8_t {
         WAIT_FOR_START,
         WAIT_FOR_HEADER,
         WAIT_FOR_PAYLOAD
@@ -30,31 +35,33 @@ public:
         reset();
     }
 
+    ProcessResult processByte(const uint8_t c) {
+        return processByte(static_cast<std::byte>(c));
+    }
+
     // Core State Machine: Feed this method one byte at a time
-    ProcessResult processByte(uint8_t c) {
+    ProcessResult processByte(const std::byte b) {
         switch (state_) {
             case State::WAIT_FOR_START:
-                if (c == kStartByte) {
-                    header_buffer_[0] = c;
+                if (b == kStartByte) {
+                    header_bytes_[0] = b;
                     rx_index_ = 1;
                     state_ = State::WAIT_FOR_HEADER;
                 }
                 return ProcessResult::INCOMPLETE;
 
             case State::WAIT_FOR_HEADER:
-                header_buffer_[rx_index_++] = c;
+                header_bytes_[rx_index_++] = b;
 
                 // If received the full header
                 if (rx_index_ == sizeof(MessageHeader)) {
-                    current_header_ = std::bit_cast<MessageHeader>(header_buffer_);
-
-                    // Safety check: Ensure the advertised length doesn't overflow static buffer
-                    if (current_header_.payload_length > Registry::max_payload_size) {
+                    // Verify ID exists and length matches compile-time registry exactly
+                    if (!Registry::isValidPayloadSize(header_.msg_id, header_.payload_length)) {
                         reset();
                         return ProcessResult::ERROR_LENGTH;
                     }
 
-                    if (current_header_.payload_length == 0) {
+                    if (header_.payload_length == 0) {
                         // Edge case: Message has no payload, just a header
                         return processHeaderOnly();
                     }
@@ -65,17 +72,16 @@ public:
                 return ProcessResult::INCOMPLETE;
 
             case State::WAIT_FOR_PAYLOAD:
-                payload_buffer_[rx_index_++] = c;
+                payload_buffer_[rx_index_++] = b;
 
                 // If received exactly the number of bytes advertised in the header
-                if (rx_index_ == current_header_.payload_length) {
+                if (rx_index_ == header_.payload_length) {
+                    // ref_header can't be nullptr due to previous isValidPayloadSize call
+                    const MessageHeader& ref_header = *Registry::getMessageHeader(header_.msg_id);
+                    const uint16_t expected_crc = calculateCRC16(
+                        std::span{payload_buffer_.data(), header_.payload_length}, ref_header.crc);
                     // Validate Checksum
-                    uint8_t expected_crc = calculateLRC8(
-                        header_buffer_, kCrcOffset);
-                    expected_crc ^= calculateLRC8(
-                        payload_buffer_, current_header_.payload_length);
-
-                    if (expected_crc == current_header_.crc) {
+                    if (expected_crc == header_.crc) {
                         // Frame is valid and ready to be retrieved
                         state_ = State::WAIT_FOR_START;
                         return ProcessResult::SUCCESS;
@@ -94,23 +100,27 @@ public:
     // Query what type of message just arrived
     // (call this after ProcessResult::SUCCESS)
     MsgId getReceivedMessageId() const {
-        return current_header_.msg_id;
+        return header_.msg_id;
     }
 
     // Returns false if the requested type
     // doesn't match the received Message ID
     template <typename TData>
     std::optional<TData> getPayload() const {
-        if (Registry::template getPayloadMsgId<TData>() != current_header_.msg_id) {
+        static_assert(Registry::template isValidPayload<TData>(),
+            "Requested payload type not supported");
+
+        if (Registry::template getPayloadMsgId<TData>() != header_.msg_id) {
             return std::nullopt;
         }
         
-        if (sizeof(TData) != current_header_.payload_length) {
+        if (sizeof(TData) != header_.payload_length) {
             return std::nullopt;
         }
 
         TData out_data;
-        memcpy(&out_data, payload_buffer_, sizeof(TData));
+        std::memcpy(&out_data, payload_buffer_.data(), sizeof(TData));
+
         return out_data;
     }
 
@@ -118,29 +128,32 @@ public:
     void reset() {
         state_ = State::WAIT_FOR_START;
         rx_index_ = 0;
-        current_header_ = {};
     }
 
 private:
+    static constexpr size_t kMaxMessagePayloadSize =
+        (Registry::max_payload_size > 0 ? Registry::max_payload_size : 1);
+
+    State state_;
+    std::size_t rx_index_;
+
+    MessageHeader header_;
+    std::span<std::byte, sizeof(MessageHeader)> header_bytes_{
+        std::as_writable_bytes(std::span{&header_, 1})};
+
+    std::array<std::byte, kMaxMessagePayloadSize> payload_buffer_;
+
+
     ProcessResult processHeaderOnly() {
-        if (calculateLRC8(header_buffer_, kCrcOffset) == current_header_.crc) {
+        // expected_header can't be nullptr due to previous isValidPayloadSize call
+        const MessageHeader& expected_header = *Registry::getMessageHeader(header_.msg_id);
+        if (expected_header == header_) {
             state_ = State::WAIT_FOR_START;
             return ProcessResult::SUCCESS;
         }
         reset(); // reset if message corrupted
         return ProcessResult::ERROR_CRC;
     }
-
-    State state_;
-    uint8_t rx_index_;
-    MessageHeader current_header_;
-    
-    // Split buffers for clean memory layout
-    uint8_t header_buffer_[sizeof(MessageHeader)];
-
-    static constexpr size_t kMaxMessagePayloadSize =
-        (Registry::max_payload_size > 0 ? Registry::max_payload_size : 1);
-    uint8_t payload_buffer_[kMaxMessagePayloadSize];
 };
 
 #endif // DIFF_DRIVE_DESERIALIZE_HPP

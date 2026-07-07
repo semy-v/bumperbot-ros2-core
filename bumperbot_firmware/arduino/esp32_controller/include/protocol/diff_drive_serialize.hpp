@@ -1,7 +1,14 @@
 #ifndef DIFF_DRIVE_SERIALIZE_HPP
 #define DIFF_DRIVE_SERIALIZE_HPP
 
+#include <span>
+#include <cstring>
+#include <algorithm>
 #include "diff_drive_messages.hpp"
+
+static_assert(std::endian::native == std::endian::little,
+    "Message protocol requires a little-endian target platform because serialization uses native object representation");
+
 
 template<MessageRegistryConcept Registry>
 class MessageSerializer {
@@ -24,50 +31,58 @@ public:
     static constexpr size_t getFrameSize() {
         static_assert(Registry::template isZeroPayload<TargetId>(),
             "Frame size by MsgId only supported for zero-payload messages");
+
         return sizeof(MessageHeader);
     }
 
-    // Serialize message with Payloads
-    template<typename TData>
-    static void serialize(const TData& data, uint8_t* out_buffer) {
-        constexpr MsgId msg_id = Registry::template getPayloadMsgId<TData>();
-        constexpr uint8_t payload_len = static_cast<uint8_t>(sizeof(TData));
+    // Serialize message with non-zero payload and fixed-size output buffer
+    template<typename TData, std::size_t N>
+    static constexpr void serialize(const TData& data, std::array<uint8_t, N>& serial_message) {
+        static_assert(N == getFrameSize<TData>(), "Buffer size contract violated");
 
-        uint8_t& out_crc = serializeHeader(msg_id, payload_len, out_buffer);
-        // append payload CRC value to result buffer CRC reference
-        out_crc ^= calculateLRC8(reinterpret_cast<const uint8_t*>(&data), payload_len);
-        // copy the remaining payload data to the result buffer
-        memcpy(out_buffer + sizeof(MessageHeader), &data, sizeof(TData));
+        constexpr auto msg_id = Registry::template getPayloadMsgId<TData>();
+        constexpr auto& header = Registry::template getMessageHeader<msg_id>();
+
+        auto payload_bytes = std::as_bytes(std::span{&data, 1});
+        auto header_bytes = Registry::template getHeaderBytes<msg_id>();
+        auto message_bytes = std::span{serial_message};
+
+        serializeHeader(header, header_bytes, payload_bytes, message_bytes);
+        std::memcpy(&serial_message[header_bytes.size()], &data, sizeof(data));
+    }
+
+    // Serialize message with non-zero payload and dynamic extend output span 
+    template<typename TData>
+    static constexpr void serialize(const TData& data, std::span<uint8_t> serial_message) {
+        assert(serial_message.size() == getFrameSize<TData>()); // buffer size contract check
+
+        constexpr auto msg_id = Registry::template getPayloadMsgId<TData>();
+        constexpr auto& header = Registry::template getMessageHeader<msg_id>();
+
+        auto payload_bytes = std::as_bytes(std::span{&data, 1});
+        auto header_bytes = Registry::template getHeaderBytes<msg_id>();
+
+        serializeHeader(header, header_bytes, payload_bytes, serial_message);
+        std::memcpy(&serial_message[header_bytes.size()], &data, sizeof(data));
     }
 
     // Serialize message with Zero-Payload
     template <MsgId TargetId>
-    static void serialize(uint8_t* out_buffer) {
+    static constexpr std::span<const uint8_t> serialize() {
         static_assert(Registry::template isZeroPayload<TargetId>(),
             "Serialize called with an invalid or payload-bearing MsgId");
 
-        // serialize header with TargetId to the result buffer
-        static_cast<void>(serializeHeader(TargetId, 0, out_buffer));
+        return Registry::template getHeaderBytes<TargetId>();
     }
 
 private:
-    static uint8_t& serializeHeader(const MsgId id, const uint8_t payload_length, uint8_t* out_buffer) {
-        MessageHeader header{
-            .start_byte = kStartByte,
-            .msg_id = id,
-            .payload_length = payload_length,
-            .crc = 0
-        };
-
-        const uint8_t* header_buf = reinterpret_cast<const uint8_t*>(&header);
-        header.crc = calculateLRC8(header_buf, kCrcOffset);
-
-        // copy the FULL header with CRC computed into the result buffer
-        memcpy(out_buffer, header_buf, sizeof(header));
-
-        // Return a pointer to the CRC byte sitting inside the result buffer
-        // so the payload serializer can mutate it safely.
-        return out_buffer[kCrcOffset];
+    static constexpr void serializeHeader(const MessageHeader& header, 
+                                          std::span<const uint8_t> header_bytes,
+                                          std::span<const std::byte> payload_bytes,
+                                          std::span<uint8_t> serial_message) {
+        std::copy(header_bytes.begin(), header_bytes.end(), serial_message.begin());
+        const uint16_t message_crc = calculateCRC16(payload_bytes, header.crc);
+        std::memcpy(&serial_message[kCrcOffset], &message_crc, sizeof(message_crc));
     }
 };
 

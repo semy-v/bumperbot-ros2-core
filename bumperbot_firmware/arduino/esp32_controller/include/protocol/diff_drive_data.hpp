@@ -41,6 +41,27 @@ struct DiffDriveStateData {
     DiffDriveVelocityData velocity;
 };
 
+struct ImuStateData {
+    float angular_velocity_x;
+    float angular_velocity_y;
+    float angular_velocity_z;
+
+    float linear_acceleration_x;
+    float linear_acceleration_y;
+    float linear_acceleration_z;
+};
+
+enum class SystemStateFlags : uint8_t {
+    None             = 0,
+    ImuUnavailable   = 1 << 0,
+};
+
+struct SystemStateData {
+    SystemStateFlags status;
+    DiffDriveStateData diff_drive;
+    ImuStateData imu;
+};
+
 #pragma pack(pop)
 
 
@@ -48,5 +69,7 @@ static_assert(sizeof(DiffDriveConfigData) == 58, "DiffDriveConfigData size misma
 static_assert(sizeof(ImuConfigData) == 3, "ImuConfigData size mismatch!");
 static_assert(sizeof(DiffDriveCommandData) == 9, "DiffDriveCommandData size mismatch!");
 static_assert(sizeof(DiffDriveStateData) == 8, "DiffDriveStateData size mismatch!");
+static_assert(sizeof(ImuStateData) == 24, "DiffDriveStateData size mismatch!");
+static_assert(sizeof(SystemStateData) == 33, "SystemStateData size mismatch");
 
 #endif // DIFF_DRIVE_DATA_HPP

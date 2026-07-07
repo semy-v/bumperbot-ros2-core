@@ -11,6 +11,7 @@ enum class MsgId : uint8_t {
     ImuConfig,
     DiffDriveCommand,
     DiffDriveState,
+    SystemState,
     Deactivate,
     End // meta value designating end of MsgId enum
 };
@@ -19,6 +20,7 @@ using DiffDriveConfigMsg = MessageDef<MsgId::DiffDriveConfig, DiffDriveConfigDat
 using ImuConfigMsg = MessageDef<MsgId::ImuConfig, ImuConfigData>;
 using DiffDriveCommandMsg = MessageDef<MsgId::DiffDriveCommand, DiffDriveCommandData>;
 using DiffDriveStateMsg = MessageDef<MsgId::DiffDriveState, DiffDriveStateData>;
+using SystemStateMsg = MessageDef<MsgId::SystemState, SystemStateData>;
 using DeactivateMsg = MessageDef<MsgId::Deactivate, void>; // zero-payload
 
 // Single source of truth containing all valid protocol definitions.
@@ -27,6 +29,7 @@ using DiffDriveMessageRegistry = MessageRegistry<
     ImuConfigMsg,
     DiffDriveCommandMsg,
     DiffDriveStateMsg,
+    SystemStateMsg,
     DeactivateMsg
 >;
 
