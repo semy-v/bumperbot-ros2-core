@@ -197,7 +197,10 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State 
           , transceiver_.lastErrorMessage().c_str());
     return CallbackReturn::ERROR;
   }
-  if (false == imu_config_resp_opt.value().result) {
+  if (imu_config_resp_opt.value().result) {
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
+      "IMU sensor initialized and calibrated successfully");
+  } else {
     RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "IMU configuration/calibration failed");
     return CallbackReturn::ERROR;
@@ -250,7 +253,7 @@ CallbackReturn RobotSystemInterface::on_activate(const rclcpp_lifecycle::State &
   };
 
   const auto opt_response =
-    sendReceiveMessageData<DiffDriveCommandData, DiffDriveStateData>(
+    sendReceiveMessageData<DiffDriveCommandData, SystemStateData>(
         kZeroWheelVelocity, kMaxReqRespAttempts);
 
   if (not opt_response) {
@@ -264,11 +267,11 @@ CallbackReturn RobotSystemInterface::on_activate(const rclcpp_lifecycle::State &
   // message to be available before first read()
   transceiver_.writeMessage(kZeroWheelVelocity);
 
-  const auto response = *opt_response;
+  const auto& velocity_data = opt_response.value().diff_drive.velocity;
   RCLCPP_INFO(rclcpp::get_logger("RobotSystemInterface"),
     "Current wheels angular velocity (rad/sec): right wheel %.1f | left wheel %.1f"
-        , response.velocity.right_wheel_velocity
-        , response.velocity.left_wheel_velocity);
+        , velocity_data.right_wheel_velocity
+        , velocity_data.left_wheel_velocity);
 
   // set communication budget with added 2ms
   // for serial transmission and sensor read overhead
@@ -336,12 +339,37 @@ CallbackReturn RobotSystemInterface::on_error(const rclcpp_lifecycle::State &) {
 std::vector<hardware_interface::StateInterface> RobotSystemInterface::export_state_interfaces() {
   std::vector<hardware_interface::StateInterface> state_interfaces;
 
+  // export state interfaces for DiffDriveController
   for (size_t i = 0; i < kWheelNames.size(); i++) {
     state_interfaces.emplace_back(hardware_interface::StateInterface(
         std::string(kWheelNames[i]), hardware_interface::HW_IF_POSITION, &wheels_data_[i].position_state));
     state_interfaces.emplace_back(hardware_interface::StateInterface(
         std::string(kWheelNames[i]), hardware_interface::HW_IF_VELOCITY, &wheels_data_[i].velocity_state));
   }
+
+  // export state interfaces for IMU broadcaster
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "angular_velocity.x", &imu_sensor_data_.angular_velocity_x));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "angular_velocity.y", &imu_sensor_data_.angular_velocity_y));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "angular_velocity.z", &imu_sensor_data_.angular_velocity_z));
+
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "linear_acceleration.x", &imu_sensor_data_.linear_acceleration_x));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "linear_acceleration.y", &imu_sensor_data_.linear_acceleration_y));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "linear_acceleration.z", &imu_sensor_data_.linear_acceleration_z));
+
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "orientation.x", &imu_sensor_data_.orientation_x));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "orientation.y", &imu_sensor_data_.orientation_y));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "orientation.z", &imu_sensor_data_.orientation_z));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "imu_sensor", "orientation.w", &imu_sensor_data_.orientation_w));
 
   return state_interfaces;
 }
@@ -363,7 +391,7 @@ hardware_interface::return_type RobotSystemInterface::read(const rclcpp::Time &,
 {
   constexpr size_t kVelocityReadErrorThreshold{10};
 
-  if (!processVelocityStateMessage()) {
+  if (!processSystemStateMessage()) {
     if (velocity_read_error_count_ > kVelocityReadErrorThreshold) {
       RCLCPP_ERROR(rclcpp::get_logger("RobotSystemInterface"),
         "Exceeded maximum velocity message read error threshold: %zu"
@@ -424,7 +452,7 @@ hardware_interface::return_type RobotSystemInterface::write(const rclcpp::Time &
   return hardware_interface::return_type::OK;
 }
 
-bool RobotSystemInterface::processVelocityStateMessage() {
+bool RobotSystemInterface::processSystemStateMessage() {
   if (!transceiver_.isDataAvailable()) {
     RCLCPP_WARN(rclcpp::get_logger("RobotSystemInterface"),
       "Wheels velocity state message not available, count: '%lu'"
@@ -432,7 +460,7 @@ bool RobotSystemInterface::processVelocityStateMessage() {
     return false;
   }
 
-  const auto opt_state = transceiver_.readLastMessageData<DiffDriveStateData>();
+  const auto opt_state = transceiver_.readLastMessageData<SystemStateData>();
   if (!opt_state) {
     RCLCPP_WARN(rclcpp::get_logger("RobotSystemInterface"),
       "Failed to process wheels velocity state message: '%s'"
@@ -442,8 +470,31 @@ bool RobotSystemInterface::processVelocityStateMessage() {
     return false;
   }
 
-  wheels_data_[kRightWheelIndex].velocity_state = opt_state.value().velocity.right_wheel_velocity;
-  wheels_data_[kLeftWheelIndex].velocity_state = opt_state.value().velocity.left_wheel_velocity;
+  if (opt_state.value().status != SystemStateFlags::ImuUnavailable) {
+    if (!imu_sensor_data_.data_available) {
+      RCLCPP_WARN(rclcpp::get_logger("RobotSystemInterface"),
+        "IMU sensor data available again");
+      imu_sensor_data_.data_available = true;
+    }
+
+    const auto& imu_state = opt_state.value().imu;
+    imu_sensor_data_.angular_velocity_x = imu_state.angular_velocity_x;
+    imu_sensor_data_.angular_velocity_y = imu_state.angular_velocity_y;
+    imu_sensor_data_.angular_velocity_z = imu_state.angular_velocity_z;
+    imu_sensor_data_.linear_acceleration_x = imu_state.linear_acceleration_x;
+    imu_sensor_data_.linear_acceleration_y = imu_state.linear_acceleration_y;
+    imu_sensor_data_.linear_acceleration_z = imu_state.linear_acceleration_z;
+  } else {
+    if (imu_sensor_data_.data_available) {
+      RCLCPP_WARN(rclcpp::get_logger("RobotSystemInterface"),
+        "IMU sensor data unavailable");
+      imu_sensor_data_.data_available = false;
+    }
+  }
+
+  const auto& velocity_data = opt_state.value().diff_drive.velocity;
+  wheels_data_[kRightWheelIndex].velocity_state = velocity_data.right_wheel_velocity;
+  wheels_data_[kLeftWheelIndex].velocity_state = velocity_data.left_wheel_velocity;
   velocity_read_error_count_ = 0;
 
   return true;

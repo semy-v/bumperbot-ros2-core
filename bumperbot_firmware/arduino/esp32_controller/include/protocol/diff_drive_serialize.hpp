@@ -7,7 +7,7 @@
 #include "diff_drive_messages.hpp"
 
 static_assert(std::endian::native == std::endian::little,
-    "Message protocol requires a little-endian target platform because serialization uses native object representation");
+    "Message protocol requires unified little-endian platform between communication parties");
 
 
 template<MessageRegistryConcept Registry>

@@ -135,7 +135,8 @@ private:
             }
         }
 
-        // Clear the local stream_buffer as all the bytes were fed into statefull deserializer_.
+        // Clear the local stream_buffer as all the bytes
+        // were pprocessed by statefull deserializer_.
         stream_buffer.clear();
         return false;
     }

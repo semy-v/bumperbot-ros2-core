@@ -51,12 +51,51 @@ private:
     double position_state;
   };
 
+  struct ImuSensorData {
+    double angular_velocity_x;
+    double angular_velocity_y;
+    double angular_velocity_z;
+    double linear_acceleration_x;
+    double linear_acceleration_y;
+    double linear_acceleration_z;
+
+    // orientation is not tracked, so
+    // default values will not change
+    double orientation_x{0.0};
+    double orientation_y{0.0};
+    double orientation_z{0.0};
+    double orientation_w{1.0};
+
+    // flag to track IMU sensor
+    // data availability
+    bool data_available{true};
+  };
+
   using TwoWheelsData = std::array<WheelData, 2>;
   using SystemMessageSerialProtocol = SerialMessageProtocol<DiffDriveMessageRegistry>;
 
+  // hardware parameters
+  std::string port_;
+  double wheels_min_velocity_;
+  DiffDriveConfigData config_data_;
+
+  // differential drive hardware interface data
+  TwoWheelsData wheels_data_{};
+
+  // IMU sensor hardware interface data
+  ImuSensorData imu_sensor_data_{};
+
+  // Communication handling members
+  double measured_roundtrip_ms_{0};
+  size_t communication_budget_ms_{0};
+  size_t velocity_read_error_count_{0};
+  std::optional<uint8_t> response_delay_ms_{};
+  SerialMessageTransceiver<SystemMessageSerialProtocol> transceiver_{};
+
+  // Private methods
   bool validateWheelJointNamesConfig() const;
   size_t waitDataAvailableToRead(const size_t wait_time_ms);
-  bool processVelocityStateMessage();
+  bool processSystemStateMessage();
   bool closeSerialConnection() noexcept;
   void computeResponseDelay(const rclcpp::Duration & period);
 
@@ -66,18 +105,6 @@ private:
 
   template<MsgId TargetId>
   bool sendReceiveMessage(const size_t max_attempts);
-
-  SerialMessageTransceiver<SystemMessageSerialProtocol> transceiver_{};
-  TwoWheelsData wheels_data_{};
-  size_t velocity_read_error_count_{0};
-  double measured_roundtrip_ms_{0};
-  size_t communication_budget_ms_{0};
-  std::optional<uint8_t> response_delay_ms_{};
-
-  // hardware parameters
-  std::string port_;
-  double wheels_min_velocity_;
-  DiffDriveConfigData config_data_;
 };
 
 }  // namespace bumperbot_firmware

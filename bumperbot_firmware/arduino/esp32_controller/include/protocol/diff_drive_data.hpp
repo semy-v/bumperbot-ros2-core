@@ -58,8 +58,8 @@ enum class SystemStateFlags : uint8_t {
 
 struct SystemStateData {
     SystemStateFlags status;
-    DiffDriveStateData diff_drive;
     ImuStateData imu;
+    DiffDriveStateData diff_drive;
 };
 
 #pragma pack(pop)

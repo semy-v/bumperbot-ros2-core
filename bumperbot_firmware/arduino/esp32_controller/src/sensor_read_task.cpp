@@ -47,13 +47,29 @@ void sensorReadTask(void* pvParameters) {
                         static_cast<uint8_t>(event.payload);
                     vTaskDelay(pdMS_TO_TICKS(response_delay_ms));
 
-                    // send latest velocity data in response
-                    DiffDriveStateData state{
-                        .velocity = {
-                            .right_wheel_velocity = 0.0f,
-                            .left_wheel_velocity = 0.0f
-                        }};
-                    xQueuePeek(p_task_data->diff_drive_state_queue, &state.velocity, 0);
+                    SystemStateData state{
+                        .status = SystemStateFlags::None,
+                        .imu = {}, // zero out the IMU sensor values
+                        .diff_drive = {} // zero out diff drive values
+                    };
+
+                    // Read current IMU sensor data
+                    if (auto opt_imu_data = imu_sensor.readCalibrated(); opt_imu_data.has_value()) {
+                        const auto& imu_data = opt_imu_data.value();
+                        state.imu.angular_velocity_x = imu_data.gyroX;
+                        state.imu.angular_velocity_y = imu_data.gyroY;
+                        state.imu.angular_velocity_z = imu_data.gyroZ;
+                        state.imu.linear_acceleration_x = imu_data.accelX;
+                        state.imu.linear_acceleration_y = imu_data.accelY;
+                        state.imu.linear_acceleration_z = imu_data.accelZ;
+                    } else {
+                        state.status = SystemStateFlags::ImuUnavailable;
+                    }
+
+                    // Read latest differential drive sensor data
+                    xQueuePeek(p_task_data->diff_drive_state_queue, &state.diff_drive.velocity, 0);
+
+                    // Send system state message in response
                     sendSerialMessage(state);
                 } break;
                 default:

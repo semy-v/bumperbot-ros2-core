@@ -1,67 +1,248 @@
+# ==============================================================================
+# ROS 2 Controller Manager Configuration
+# ==============================================================================
+#
+# This file configures the ros2_control Controller Manager together with all
+# controllers and broadcasters used by the BumperBot platform.
+#
+# Controller Architecture
+# -----------------------
+#   RobotSystemInterface
+#          │
+#          ├── Wheel state & command interfaces
+#          │       └── DiffDriveController
+#          │
+#          ├── Joint state interfaces
+#          │       └── JointStateBroadcaster
+#          │
+#          └── IMU sensor state interfaces
+#                  └── IMUSensorBroadcaster
+#
+# The Controller Manager executes every loaded controller at a fixed update
+# rate. Each controller claims only the interfaces it requires.
+#
+# ==============================================================================
+
 controller_manager:
   ros__parameters:
+
+    # Controller update frequency.
+    #
+    # This determines how often the Controller Manager invokes the update()
+    # method of every active controller and broadcaster.
+    #
+    # The selected 100 Hz update rate is higher than the wheel PID controller
+    # frequency (50 Hz), ensuring command processing and state publication
+    # remain responsive without overloading the CPU.
     update_rate: 100 # Hz
 
+    # Differential drive motion controller.
+    #
+    # Converts geometry_msgs/Twist commands into left and right wheel velocity
+    # commands while simultaneously computing wheel odometry.
     diff_drive_controller:
       type: diff_drive_controller/DiffDriveController
 
+    # Publishes sensor_msgs/JointState for all joints exposing position and/or
+    # velocity state interfaces through ros2_control.
+    #
+    # This broadcaster is primarily consumed by RViz, robot_state_publisher,
+    # and various visualization and debugging tools.
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
+    # Publishes sensor_msgs/Imu using IMU state interfaces exposed by the
+    # RobotSystemInterface.
+    #
+    # The broadcaster performs no sensor fusion or filtering. It simply copies
+    # the hardware state interfaces into a ROS IMU message while applying any
+    # static frame transformation defined in the robot model.
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/IMUSensorBroadcaster
+
+
+# ==============================================================================
+# Joint State Broadcaster
+# ==============================================================================
+
 joint_state_broadcaster:
   ros__parameters:
+
+    # No additional parameters are required.
+    #
+    # The broadcaster automatically publishes every joint exposing position,
+    # velocity and/or effort state interfaces.
     type: joint_state_broadcaster/JointStateBroadcaster
+
+
+# ==============================================================================
+# IMU Sensor Broadcaster
+# ==============================================================================
+
+imu_sensor_broadcaster:
+  ros__parameters:
+
+    type: imu_sensor_broadcaster/IMUSensorBroadcaster
+
+    # Name of the ros2_control IMU sensor defined in
+    # bumperbot_ros2_control.xacro.
+    #
+    # The broadcaster claims all state interfaces exported by this sensor.
+    sensor_name: "imu_sensor"
+
+    # TF frame in which IMU measurements are expressed.
+    #
+    # This should match the URDF frame attached to the physical MPU6050.
+    frame_id: "imu_link"
+
+    # --------------------------------------------------------------------------
+    # Measurement Covariances
+    # --------------------------------------------------------------------------
+    #
+    # These covariance matrices describe the expected measurement uncertainty.
+    # They are consumed by downstream sensor fusion packages such as
+    # robot_localization.
+    #
+
+    # Orientation covariance matrix.
+    #
+    # The MPU6050 provides only gyroscope and accelerometer measurements.
+    # Since no onboard orientation estimation (DMP/AHRS) is used, orientation
+    # is unavailable.
+    #
+    # According to sensor_msgs/msg/Imu, setting the first covariance element to
+    # -1 indicates that the orientation estimate should be ignored.
+    static_covariance_orientation:
+      [-1.0, 0.0, 0.0,
+        0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0]
+
+    # Angular velocity covariance matrix (rad²/s²).
+    #
+    # Represents the estimated variance of calibrated gyroscope measurements.
+    # The values were selected based on the expected noise characteristics of
+    # the MPU6050 after calibration.
+    static_covariance_angular_velocity:
+      [0.005, 0.0,   0.0,
+       0.0,   0.005, 0.0,
+       0.0,   0.0,   0.005]
+
+    # Linear acceleration covariance matrix ((m/s²)²).
+    #
+    # Represents the estimated variance of calibrated accelerometer
+    # measurements, including sensor noise and vibration from the differential
+    # drive platform.
+    static_covariance_linear_acceleration:
+      [0.01, 0.0,  0.0,
+       0.0,  0.01, 0.0,
+       0.0,  0.0,  0.01]
+
+
+# ==============================================================================
+# Differential Drive Controller
+# ==============================================================================
 
 diff_drive_controller:
   ros__parameters:
+
     type: diff_drive_controller/DiffDriveController
+
+    # Subscribe to geometry_msgs/TwistStamped instead of Twist.
+    #
+    # Timestamped commands allow stale commands to be detected using the
+    # cmd_vel_timeout parameter.
     use_stamped_vel: true
-    left_wheel_names:   ['wheel_left_joint']
-    right_wheel_names:  ['wheel_right_joint']
 
+    # Wheel joints controlled by the differential drive controller.
+    left_wheel_names:  ['wheel_left_joint']
+    right_wheel_names: ['wheel_right_joint']
+
+    # Frequency at which odometry and controller state are published.
+    #
+    # This matches the wheel encoder update rate produced by the firmware.
     publish_rate: 50.0
-    pose_covariance_diagonal:  [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
-    twist_covariance_diagonal: [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
 
-    wheel_separation: 0.17
-    wheel_radius:     0.033
+    # Estimated odometry covariance matrices.
+    #
+    # These values describe the confidence in the wheel odometry estimate and
+    # are consumed by robot_localization when fusing encoder and IMU data.
+    pose_covariance_diagonal:
+      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
 
+    twist_covariance_diagonal:
+      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
+
+    # Physical robot dimensions.
+    #
+    # These parameters define the differential drive kinematics and should
+    # match the measured hardware dimensions.
+    wheel_separation: 0.17   # Distance between wheel contact points (m)
+    wheel_radius:     0.033  # Wheel radius (m)
+
+    # Calibration multipliers.
+    #
+    # These compensate for manufacturing tolerances or mechanical wear without
+    # modifying the nominal robot dimensions.
     wheel_separation_multiplier:   1.0
     left_wheel_radius_multiplier:  1.0
     right_wheel_radius_multiplier: 1.0
 
-    # Velocity commands timeout [s], default 0.5
-    cmd_vel_timeout: 0.5
+    # Maximum allowed age of the latest velocity command.
+    #
+    # If no new command arrives within this interval, the controller
+    # automatically commands zero wheel velocities as a safety mechanism.
+    cmd_vel_timeout: 0.5 # seconds
 
-    # Base frame_id
-    base_frame_id: base_footprint #default: base_link
+    # Base frame used when publishing odometry.
+    #
+    # Since robot_localization publishes the odom → base transform, the
+    # controller is configured not to publish TF directly.
+    base_frame_id: base_footprint
 
-    # Publish limited velocity
+    # Publish the velocity after applying controller limits.
+    #
+    # Useful for monitoring command saturation.
     publish_limited_velocity: true
 
-    # Publish wheel data
+    # Publish individual wheel velocities and positions.
     publish_wheel_data: true
 
-    # Publish to TF directly or not
+    # Disable odom → base TF publication.
+    #
+    # The transform is instead generated by robot_localization using fused
+    # wheel odometry and IMU measurements.
     enable_odom_tf: false
 
-    # Velocity and acceleration limits
-    # Whenever a min_* is unspecified, default to -max_*
+    # --------------------------------------------------------------------------
+    # Motion Limits
+    # --------------------------------------------------------------------------
+    #
+    # These limits constrain commanded robot motion before wheel commands are
+    # generated, preventing unsafe velocities and excessive accelerations.
+    #
+
     linear:
       x:
-        has_velocity_limits    : true
-        max_velocity           : 0.7  # m/s
-        min_velocity           : -0.7 # m/s
+        has_velocity_limits: true
+        max_velocity: 0.7      # m/s
+        min_velocity: -0.7     # m/s
+
         has_acceleration_limits: true
-        max_acceleration       : 0.7  # m/s^2
-        min_acceleration       : -0.7 # m/s^2
-        max_jerk               : 5.0  # m/s^3
+        max_acceleration: 0.7  # m/s²
+        min_acceleration: -0.7 # m/s²
+
+        # Maximum allowed rate of acceleration change.
+        max_jerk: 5.0          # m/s³
+
     angular:
       z:
-        has_velocity_limits    : true
-        max_velocity           : 8.5  # rad/s
-        min_velocity           : -8.5  # rad/s
+        has_velocity_limits: true
+        max_velocity: 8.5      # rad/s
+        min_velocity: -8.5     # rad/s
+
         has_acceleration_limits: true
-        max_acceleration       : 5.0  # rad/s^2
-        min_acceleration       : -5.0   # rad/s^2
-        max_jerk               : 2.5  # rad/s^3
+        max_acceleration: 5.0  # rad/s²
+        min_acceleration: -5.0 # rad/s²
+
+        # Maximum allowed rate of angular acceleration change.
+        max_jerk: 2.5          # rad/s³

@@ -24,9 +24,16 @@ def generate_launch_description():
         arguments=["joint_state_broadcaster", "--param-file", bumperbot_controllers],
     )
 
+    imu_broadcaster_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["imu_sensor_broadcaster", "--param-file", bumperbot_controllers],
+    )
+
     return LaunchDescription(
         [
             diff_drive_controller_spawner,
-            joint_state_broadcaster_spawner
+            joint_state_broadcaster_spawner,
+            imu_broadcaster_spawner
         ]
     )
