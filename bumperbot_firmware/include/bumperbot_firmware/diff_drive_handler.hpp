@@ -10,12 +10,12 @@
 #include <hardware_interface/system_interface.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "diff_drive_data.hpp"
+#include "system_data.hpp"
 
 namespace bumperbot_firmware {
 
 class DifferentialDriveHandler {
-   public:
+ public:
     DifferentialDriveHandler() = default;
 
     bool init(const hardware_interface::HardwareInfo& info, const rclcpp::Logger& logger);
@@ -30,7 +30,7 @@ class DifferentialDriveHandler {
     const DiffDriveConfigData& getConfig() const { return config_data_; }
     double getMinVelocity() const { return wheels_min_velocity_; }
 
-   private:
+ private:
     struct WheelData {
         double velocity_command{0.0};
         double velocity_state{0.0};

@@ -5,7 +5,7 @@
 
 #include "quadrature_encoder.hpp"
 #include "l298n_motor.hpp"
-#include "protocol/diff_drive_data.hpp"
+#include "protocol/system_data.hpp"
 
 class WheelController {
 public:

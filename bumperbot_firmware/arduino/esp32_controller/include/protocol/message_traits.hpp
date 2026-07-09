@@ -1,13 +1,13 @@
-#ifndef DIFF_DRIVE_MESSAGE_TRAITS_HPP
-#define DIFF_DRIVE_MESSAGE_TRAITS_HPP
+#ifndef MESSAGE_TRAITS_HPP
+#define MESSAGE_TRAITS_HPP
 
-#include <bit>
-#include <span>
 #include <array>
-#include <limits>
-#include <utility>
+#include <bit>
 #include <cstdint>
+#include <limits>
+#include <span>
 #include <type_traits>
+#include <utility>
 
 // #### Message internals ####
 
@@ -18,7 +18,7 @@ enum class MsgId : uint8_t;
 
 struct MessageHeader {
     std::byte start_byte;
-    MsgId   msg_id;
+    MsgId msg_id;
     uint8_t payload_length;
     uint16_t crc;
 
@@ -40,8 +40,11 @@ consteval std::array<uint16_t, 256> generateCrcTable() {
     for (int i = 0; i < 256; ++i) {
         uint16_t crc = static_cast<uint16_t>(i) << 8;
         for (int j = 0; j < 8; ++j) {
-            if (crc & 0x8000) crc = (crc << 1) ^ 0x1021;
-            else crc <<= 1;
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
         }
         table[i] = crc;
     }
@@ -81,11 +84,12 @@ constexpr uint16_t calculateCRC16(std::span<const std::byte> data, uint16_t init
 template <MsgId Id, typename TPayload>
 struct MessageDef {
     static_assert(std::is_trivially_copyable_v<TPayload>,
-        "Message protocol supports only trivially copyable payload types");
+                  "Message protocol supports only trivially copyable payload types");
     static_assert(std::is_standard_layout_v<TPayload>,
-        "Message protocol supports only standard memory layout payload types");
-    static_assert(sizeof(TPayload) <= std::numeric_limits<decltype(MessageHeader::payload_length)>::max(),
-        "Message payload size limit exceeded");
+                  "Message protocol supports only standard memory layout payload types");
+    static_assert(sizeof(TPayload) <=
+                      std::numeric_limits<decltype(MessageHeader::payload_length)>::max(),
+                  "Message payload size limit exceeded");
 
     static constexpr MsgId id = Id;
     using PayloadType = TPayload;
@@ -95,8 +99,7 @@ struct MessageDef {
         .start_byte = kStartByte,
         .msg_id = id,
         .payload_length = payload_size,
-        .crc = calculateHeaderCRC(kStartByte, id, payload_size)
-    };
+        .crc = calculateHeaderCRC(kStartByte, id, payload_size)};
 };
 
 // Partial specialization for zero-payload messages
@@ -106,14 +109,11 @@ struct MessageDef<Id, void> {
     using PayloadType = void;
     static constexpr bool has_payload = false;
     static constexpr decltype(MessageHeader::payload_length) payload_size = 0;
-    static constexpr MessageHeader header = {
-        .start_byte = kStartByte,
-        .msg_id = id,
-        .payload_length = 0,
-        .crc = calculateHeaderCRC(kStartByte, id, 0)
-    };
+    static constexpr MessageHeader header = {.start_byte = kStartByte,
+                                             .msg_id = id,
+                                             .payload_length = 0,
+                                             .crc = calculateHeaderCRC(kStartByte, id, 0)};
 };
-
 
 // #### Message registry type ####
 
@@ -129,7 +129,7 @@ struct MessageRegistry {
     static consteval bool isZeroPayload() {
         return (((MsgDefs::id == TargetId) && !MsgDefs::has_payload) || ...);
     }
-    
+
     template <typename TPayload>
     static consteval bool isValidPayload() {
         return ((std::is_same<typename MsgDefs::PayloadType, TPayload>::value) || ...);
@@ -147,13 +147,13 @@ struct MessageRegistry {
     template <typename TPayload>
     static consteval MsgId getPayloadMsgId() {
         static_assert(isValidPayload<TPayload>(),
-            "Requested Payload Type not present in MessageRegistry");
+                      "Requested Payload Type not present in MessageRegistry");
 
         MsgId target_id = static_cast<MsgId>(0);
 
-        ((std::is_same_v<TPayload, typename MsgDefs::PayloadType>
-            ? (target_id = MsgDefs::id, true)
-            : false) || ...);
+        ((std::is_same_v<TPayload, typename MsgDefs::PayloadType> ? (target_id = MsgDefs::id, true)
+                                                                  : false) ||
+         ...);
 
         return target_id;
     }
@@ -178,10 +178,9 @@ struct MessageRegistry {
         static_assert(std::is_same_v<uint8_t, unsigned char>);
 
         constexpr auto& header = getMessageHeader<TargetId>();
-        return { reinterpret_cast<const uint8_t*>(&header), sizeof(header) };
+        return {reinterpret_cast<const uint8_t*>(&header), sizeof(header)};
     }
 };
-
 
 // #### Message registry concept ####
 
@@ -191,8 +190,7 @@ struct is_message_registry : std::false_type {};
 template <typename... MsgDefs>
 struct is_message_registry<MessageRegistry<MsgDefs...>> : std::true_type {};
 
-template<typename T>
+template <typename T>
 concept MessageRegistryConcept = is_message_registry<std::remove_cvref_t<T>>::value;
 
-
-#endif // DIFF_DRIVE_MESSAGE_TRAITS_HPP
+#endif  // MESSAGE_TRAITS_HPP

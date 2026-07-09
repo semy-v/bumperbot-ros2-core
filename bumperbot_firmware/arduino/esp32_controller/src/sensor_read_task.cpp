@@ -6,7 +6,7 @@
 #include <freertos/task.h>
 
 #include "imu/mpu6050_driver.hpp"
-#include "protocol/diff_drive_data.hpp"
+#include "protocol/system_data.hpp"
 #include "serial_message_processor.hpp"
 #include "task_shared_data.hpp"
 #include "wire_i2c_bus.hpp"

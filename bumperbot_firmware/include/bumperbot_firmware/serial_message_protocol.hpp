@@ -4,15 +4,15 @@
 #include <string>
 #include <vector>
 
-#include "diff_drive_deserialize.hpp"
-#include "diff_drive_messages.hpp"
-#include "diff_drive_serialize.hpp"
+#include "message_deserialize.hpp"
+#include "message_serialize.hpp"
+#include "system_messages.hpp"
 
 namespace bumperbot_firmware {
 
 template <MessageRegistryConcept Registry>
 class SerialMessageProtocol {
-   public:
+ public:
     SerialMessageProtocol() {
         // reserve max possible frame size in internal buffer
         // to prevent buffer reallocations during serialization
@@ -101,7 +101,7 @@ class SerialMessageProtocol {
         return valid_message_found_;
     }
 
-   private:
+ private:
     using SystemMessageSerializer = MessageSerializer<Registry>;
     using SystemMessageStreamDeserializer = MessageStreamDeserializer<Registry>;
 

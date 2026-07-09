@@ -15,7 +15,7 @@ constexpr size_t kMinReadWaitTimeMs{1};
 
 template <typename SerialProtocol>
 class SerialMessageTransceiver {
-   public:
+ public:
     SerialMessageTransceiver() {
         constexpr size_t kReserveBufferSize{256};
         constexpr size_t kMaxErrorMessageLength{64};
@@ -97,7 +97,7 @@ class SerialMessageTransceiver {
         });
     }
 
-   private:
+ private:
     LibSerial::SerialPort serial_;
     SerialProtocol protocol_;
     std::vector<uint8_t> receive_buffer_;

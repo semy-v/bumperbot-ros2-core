@@ -1,42 +1,43 @@
-#ifndef DIFF_DRIVE_SERIALIZE_HPP
-#define DIFF_DRIVE_SERIALIZE_HPP
+#ifndef MESSAGE_SERIALIZE_HPP
+#define MESSAGE_SERIALIZE_HPP
 
-#include <span>
-#include <cstring>
 #include <algorithm>
-#include "diff_drive_messages.hpp"
+#include <cstring>
+#include <span>
 
-static_assert(std::endian::native == std::endian::little,
+#include "message_traits.hpp"
+
+static_assert(
+    std::endian::native == std::endian::little,
     "Message protocol requires unified little-endian platform between communication parties");
 
-
-template<MessageRegistryConcept Registry>
+template <MessageRegistryConcept Registry>
 class MessageSerializer {
-public:
+ public:
     static constexpr size_t getMaxFrameSize() {
         return sizeof(MessageHeader) + Registry::max_payload_size;
     }
 
     // Get frame size for message with payload
-    template<typename TData>
+    template <typename TData>
     static constexpr size_t getFrameSize() {
         static_assert(Registry::template isValidPayload<TData>(),
-            "Frame size requested for a Payload Type not present in MessageRegistry");
+                      "Frame size requested for a Payload Type not present in MessageRegistry");
 
         return sizeof(MessageHeader) + sizeof(TData);
     }
 
     // Get frame size for message with zero-payload
-    template<MsgId TargetId>
+    template <MsgId TargetId>
     static constexpr size_t getFrameSize() {
         static_assert(Registry::template isZeroPayload<TargetId>(),
-            "Frame size by MsgId only supported for zero-payload messages");
+                      "Frame size by MsgId only supported for zero-payload messages");
 
         return sizeof(MessageHeader);
     }
 
     // Serialize message with non-zero payload and fixed-size output buffer
-    template<typename TData, std::size_t N>
+    template <typename TData, std::size_t N>
     static constexpr void serialize(const TData& data, std::array<uint8_t, N>& serial_message) {
         static_assert(N == getFrameSize<TData>(), "Buffer size contract violated");
 
@@ -51,10 +52,10 @@ public:
         std::memcpy(&serial_message[header_bytes.size()], &data, sizeof(data));
     }
 
-    // Serialize message with non-zero payload and dynamic extend output span 
-    template<typename TData>
+    // Serialize message with non-zero payload and dynamic extend output span
+    template <typename TData>
     static constexpr void serialize(const TData& data, std::span<uint8_t> serial_message) {
-        assert(serial_message.size() == getFrameSize<TData>()); // buffer size contract check
+        assert(serial_message.size() == getFrameSize<TData>());  // buffer size contract check
 
         constexpr auto msg_id = Registry::template getPayloadMsgId<TData>();
         constexpr auto& header = Registry::template getMessageHeader<msg_id>();
@@ -70,13 +71,13 @@ public:
     template <MsgId TargetId>
     static constexpr std::span<const uint8_t> serialize() {
         static_assert(Registry::template isZeroPayload<TargetId>(),
-            "Serialize called with an invalid or payload-bearing MsgId");
+                      "Serialize called with an invalid or payload-bearing MsgId");
 
         return Registry::template getHeaderBytes<TargetId>();
     }
 
-private:
-    static constexpr void serializeHeader(const MessageHeader& header, 
+ private:
+    static constexpr void serializeHeader(const MessageHeader& header,
                                           std::span<const uint8_t> header_bytes,
                                           std::span<const std::byte> payload_bytes,
                                           std::span<uint8_t> serial_message) {
@@ -86,4 +87,4 @@ private:
     }
 };
 
-#endif // DIFF_DRIVE_SERIALIZE_HPP
+#endif  // MESSAGE_SERIALIZE_HPP

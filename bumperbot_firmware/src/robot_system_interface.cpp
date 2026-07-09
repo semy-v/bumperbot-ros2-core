@@ -46,7 +46,7 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 
 #include "bumperbot_firmware/hardware_interface_helpers.hpp"
-#include "diff_drive_data.hpp"
+#include "system_data.hpp"
 
 namespace bumperbot_firmware {
 
@@ -68,7 +68,7 @@ CallbackReturn RobotSystemInterface::on_init(
     }
 
     port_ = getHwParam<std::string>(info_.hardware_parameters, "port", "/dev/ttyACM0", logger);
-    RCLCPP_INFO(logger, "Hardware initialized successfully on port '%s'.", port_.c_str());
+    RCLCPP_INFO(logger, "Hardware initialized successfully with port '%s'.", port_.c_str());
     return CallbackReturn::SUCCESS;
 }
 
@@ -102,6 +102,7 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
     transceiver_.openPort(port_, LibSerial::BaudRate::BAUD_115200);
     // wait for Arduino wake up
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    RCLCPP_INFO(logger, "Serial connection opened.");
 
     // Send IMU config message and wait for echo response
     constexpr size_t kImuCalibMs{2000};

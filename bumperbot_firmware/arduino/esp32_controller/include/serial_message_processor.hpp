@@ -3,9 +3,9 @@
 
 #include <Arduino.h>
 #include <array>
-#include "protocol/diff_drive_messages.hpp"
-#include "protocol/diff_drive_serialize.hpp"
-#include "protocol/diff_drive_deserialize.hpp"
+#include "protocol/system_messages.hpp"
+#include "protocol/message_serialize.hpp"
+#include "protocol/message_deserialize.hpp"
 #include "task_shared_data.hpp"
 
 // Serial output message process

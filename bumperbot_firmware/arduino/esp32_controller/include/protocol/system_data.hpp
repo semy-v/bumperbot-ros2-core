@@ -1,5 +1,5 @@
-#ifndef DIFF_DRIVE_DATA_HPP
-#define DIFF_DRIVE_DATA_HPP
+#ifndef SYSTEM_DATA_HPP
+#define SYSTEM_DATA_HPP
 
 #include <cstdint>
 
@@ -52,8 +52,8 @@ struct ImuStateData {
 };
 
 enum class SystemStateFlags : uint8_t {
-    None             = 0,
-    ImuUnavailable   = 1 << 0,
+    None = 0,
+    ImuUnavailable = 1 << 0,
 };
 
 struct SystemStateData {
@@ -64,7 +64,6 @@ struct SystemStateData {
 
 #pragma pack(pop)
 
-
 static_assert(sizeof(DiffDriveConfigData) == 58, "DiffDriveConfigData size mismatch!");
 static_assert(sizeof(ImuConfigData) == 3, "ImuConfigData size mismatch!");
 static_assert(sizeof(DiffDriveCommandData) == 9, "DiffDriveCommandData size mismatch!");
@@ -72,4 +71,4 @@ static_assert(sizeof(DiffDriveStateData) == 8, "DiffDriveStateData size mismatch
 static_assert(sizeof(ImuStateData) == 24, "DiffDriveStateData size mismatch!");
 static_assert(sizeof(SystemStateData) == 33, "SystemStateData size mismatch");
 
-#endif // DIFF_DRIVE_DATA_HPP
+#endif  // SYSTEM_DATA_HPP

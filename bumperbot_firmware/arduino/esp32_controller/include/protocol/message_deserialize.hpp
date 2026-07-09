@@ -1,45 +1,37 @@
-#ifndef DIFF_DRIVE_DESERIALIZE_HPP
-#define DIFF_DRIVE_DESERIALIZE_HPP
+#ifndef MESSAGE_DESERIALIZE_HPP
+#define MESSAGE_DESERIALIZE_HPP
 
-#include <bit>
-#include <span>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <span>
 
-#include "diff_drive_messages.hpp"
+#include "message_traits.hpp"
 
-static_assert(std::endian::native == std::endian::little,
+static_assert(
+    std::endian::native == std::endian::little,
     "Message protocol requires unified little-endian platform between communication parties");
 
 // Represents the result of feeding a single byte into the deserializer
 enum class ProcessResult {
-    INCOMPLETE,   // Frame is not yet fully received
-    SUCCESS,      // A valid frame was completely received and CRC verified
-    ERROR_SYNC,   // Lost synchronization (invalid start byte or unexpected data)
-    ERROR_LENGTH, // Header length mismatch message type payload length
-    ERROR_CRC     // Payload failed CRC validation
+    INCOMPLETE,    // Frame is not yet fully received
+    SUCCESS,       // A valid frame was completely received and CRC verified
+    ERROR_SYNC,    // Lost synchronization (invalid start byte or unexpected data)
+    ERROR_LENGTH,  // Header length mismatch message type payload length
+    ERROR_CRC      // Payload failed CRC validation
 };
 
 template <MessageRegistryConcept Registry>
 class MessageStreamDeserializer {
-public:
-    enum State : uint8_t {
-        WAIT_FOR_START,
-        WAIT_FOR_HEADER,
-        WAIT_FOR_PAYLOAD
-    };
+ public:
+    enum State : uint8_t { WAIT_FOR_START, WAIT_FOR_HEADER, WAIT_FOR_PAYLOAD };
 
-    MessageStreamDeserializer() {
-        reset();
-    }
+    MessageStreamDeserializer() { reset(); }
 
-    ProcessResult processByte(const uint8_t c) {
-        return processByte(static_cast<std::byte>(c));
-    }
+    ProcessResult processByte(const uint8_t c) { return processByte(static_cast<std::byte>(c)); }
 
-    // Core State Machine: Feed this method one byte at a time
     ProcessResult processByte(const std::byte b) {
         switch (state_) {
             case State::WAIT_FOR_START:
@@ -66,7 +58,7 @@ public:
                         return processHeaderOnly();
                     }
 
-                    rx_index_ = 0; // Reset index to start filling the payload buffer
+                    rx_index_ = 0;  // Reset index to start filling the payload buffer
                     state_ = State::WAIT_FOR_PAYLOAD;
                 }
                 return ProcessResult::INCOMPLETE;
@@ -99,21 +91,19 @@ public:
 
     // Query what type of message just arrived
     // (call this after ProcessResult::SUCCESS)
-    MsgId getReceivedMessageId() const {
-        return header_.msg_id;
-    }
+    MsgId getReceivedMessageId() const { return header_.msg_id; }
 
     // Returns false if the requested type
     // doesn't match the received Message ID
     template <typename TData>
     std::optional<TData> getPayload() const {
         static_assert(Registry::template isValidPayload<TData>(),
-            "Requested payload type not supported");
+                      "Requested payload type not supported");
 
         if (Registry::template getPayloadMsgId<TData>() != header_.msg_id) {
             return std::nullopt;
         }
-        
+
         if (sizeof(TData) != header_.payload_length) {
             return std::nullopt;
         }
@@ -130,7 +120,7 @@ public:
         rx_index_ = 0;
     }
 
-private:
+ private:
     static constexpr size_t kMaxMessagePayloadSize =
         (Registry::max_payload_size > 0 ? Registry::max_payload_size : 1);
 
@@ -143,7 +133,6 @@ private:
 
     std::array<std::byte, kMaxMessagePayloadSize> payload_buffer_;
 
-
     ProcessResult processHeaderOnly() {
         // expected_header can't be nullptr due to previous isValidPayloadSize call
         const MessageHeader& expected_header = *Registry::getMessageHeader(header_.msg_id);
@@ -151,9 +140,9 @@ private:
             state_ = State::WAIT_FOR_START;
             return ProcessResult::SUCCESS;
         }
-        reset(); // reset if message corrupted
+        reset();  // reset if message corrupted
         return ProcessResult::ERROR_CRC;
     }
 };
 
-#endif // DIFF_DRIVE_DESERIALIZE_HPP
+#endif  // MESSAGE_DESERIALIZE_HPP

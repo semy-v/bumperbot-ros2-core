@@ -9,12 +9,12 @@
 #include <hardware_interface/system_interface.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "diff_drive_data.hpp"
+#include "system_data.hpp"
 
 namespace bumperbot_firmware {
 
 class ImuSensorHandler {
-   public:
+ public:
     struct ImuSensorData {
         double angular_velocity_x{0.0}, angular_velocity_y{0.0}, angular_velocity_z{0.0};
         double linear_acceleration_x{0.0}, linear_acceleration_y{0.0}, linear_acceleration_z{0.0};
@@ -30,7 +30,7 @@ class ImuSensorHandler {
     std::span<hardware_interface::StateInterface::ConstSharedPtr> exportStateInterfaces();
     ImuConfigData getDefaultConfig(uint16_t calibration_period_ms) const;
 
-   private:
+ private:
     constexpr static size_t kStateInterfaceNum{10};
 
     ImuSensorData imu_data_{};

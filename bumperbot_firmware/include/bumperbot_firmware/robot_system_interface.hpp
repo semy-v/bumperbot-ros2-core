@@ -12,10 +12,10 @@
 
 #include <libserial/SerialPort.h>
 
-#include "diff_drive_data.hpp"
-#include "diff_drive_messages.hpp"
 #include "serial_message_protocol.hpp"
 #include "serial_message_transceiver.hpp"
+#include "system_data.hpp"
+#include "system_messages.hpp"
 
 #include "bumperbot_firmware/diff_drive_handler.hpp"
 #include "bumperbot_firmware/imu_sensor_handler.hpp"
@@ -25,7 +25,7 @@ namespace bumperbot_firmware {
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
 class RobotSystemInterface : public hardware_interface::SystemInterface {
-   public:
+ public:
     RobotSystemInterface() = default;
     virtual ~RobotSystemInterface();
 
@@ -48,7 +48,7 @@ class RobotSystemInterface : public hardware_interface::SystemInterface {
     hardware_interface::return_type read(const rclcpp::Time&, const rclcpp::Duration&) override;
     hardware_interface::return_type write(const rclcpp::Time&, const rclcpp::Duration&) override;
 
-   private:
+ private:
     using SystemMessageSerialProtocol = SerialMessageProtocol<DiffDriveMessageRegistry>;
 
     // Sub-system handlers
