@@ -29,6 +29,11 @@ class RobotSystemInterface : public hardware_interface::SystemInterface {
     RobotSystemInterface() = default;
     virtual ~RobotSystemInterface();
 
+	RobotSystemInterface(const RobotSystemInterface&) = delete;
+    RobotSystemInterface(RobotSystemInterface&&) = delete;
+    RobotSystemInterface& operator=(const RobotSystemInterface&) = delete;
+    RobotSystemInterface& operator=(RobotSystemInterface&&) = delete;
+
     // Implementing rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
     CallbackReturn on_init(
         const hardware_interface::HardwareComponentInterfaceParams& params) override;

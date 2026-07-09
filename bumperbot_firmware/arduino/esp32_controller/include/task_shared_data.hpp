@@ -17,10 +17,7 @@ void sensorReadTask(void* pvParameters);
 constexpr uint8_t kDeactivateNotifyIndex{0u};
 
 // sensor read task event notifications
-enum class SensorTaskEventId : uint32_t {
-    SensorRead = 0u,
-    ImuConfig = 1u
-};
+enum class SensorTaskEventId : uint32_t { SensorRead = 0u, ImuConfig = 1u };
 
 struct SensorTaskEvent {
     SensorTaskEventId id : 2;  // 2 bits for event ID

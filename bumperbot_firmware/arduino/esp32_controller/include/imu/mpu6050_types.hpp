@@ -12,30 +12,30 @@ namespace mpu6050 {
 // ============================================================
 
 struct IMUData {
-  float accelX{0.0f};
-  float accelY{0.0f};
-  float accelZ{0.0f};
-  float gyroX{0.0f};
-  float gyroY{0.0f};
-  float gyroZ{0.0f};
+    float accelX{0.0f};
+    float accelY{0.0f};
+    float accelZ{0.0f};
+    float gyroX{0.0f};
+    float gyroY{0.0f};
+    float gyroZ{0.0f};
 };
 
 struct IMUCalibration {
-  float accelX{0.0f};
-  float accelY{0.0f};
-  float accelZ{0.0f};
-  float gyroX{0.0f};
-  float gyroY{0.0f};
-  float gyroZ{0.0f};
+    float accelX{0.0f};
+    float accelY{0.0f};
+    float accelZ{0.0f};
+    float gyroX{0.0f};
+    float gyroY{0.0f};
+    float gyroZ{0.0f};
 };
 
 struct RawIMUData {
-  int16_t accelX{0};
-  int16_t accelY{0};
-  int16_t accelZ{0};
-  int16_t gyroX{0};
-  int16_t gyroY{0};
-  int16_t gyroZ{0};
+    int16_t accelX{0};
+    int16_t accelY{0};
+    int16_t accelZ{0};
+    int16_t gyroX{0};
+    int16_t gyroY{0};
+    int16_t gyroZ{0};
 };
 
 // ============================================================
@@ -80,8 +80,7 @@ constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
 // SENSOR CONFIGURATION MAPS (LSB sensitivity per unit)
 // ============================================================
 // Index mapping: 0=±2g, 1=±4g, 2=±8g, 3=±16g
-constexpr std::array kAccelFsMap = {16384.0f, 8192.0f, 4096.0f,
-                                              2048.0f};
+constexpr std::array kAccelFsMap = {16384.0f, 8192.0f, 4096.0f, 2048.0f};
 
 // Index mapping: 0=±250dps, 1=±500dps, 2=±1000dps, 3=±2000dps
 constexpr std::array kGyroFsMap = {131.0f, 65.5f, 32.8f, 16.4f};

@@ -33,8 +33,8 @@ void sensorReadTask(void* pvParameters) {
                         .result = false};
                     if (imu_sensor.connect()) {
                         constexpr uint16_t kSampleIntervalMs{10};
-                        const uint16_t sample_count{
-                            static_cast<uint16_t>(imu_config_data.calibrate_period_ms / kSampleIntervalMs)};
+                        const uint16_t sample_count{static_cast<uint16_t>(
+                            imu_config_data.calibrate_period_ms / kSampleIntervalMs)};
                         imu_config_data.result =
                             imu_sensor.calibrate(sample_count, kSampleIntervalMs).has_value();
                     }
@@ -43,14 +43,13 @@ void sensorReadTask(void* pvParameters) {
                 case SensorTaskEventId::SensorRead: {
                     // Delay the task for the specified number of milliseconds
                     // in order to send the latest sensor data
-                    const uint8_t response_delay_ms =
-                        static_cast<uint8_t>(event.payload);
+                    const uint8_t response_delay_ms = static_cast<uint8_t>(event.payload);
                     vTaskDelay(pdMS_TO_TICKS(response_delay_ms));
 
                     SystemStateData state{
                         .status = SystemStateFlags::None,
-                        .imu = {}, // zero out the IMU sensor values
-                        .diff_drive = {} // zero out diff drive values
+                        .imu = {},        // zero out the IMU sensor values
+                        .diff_drive = {}  // zero out diff drive values
                     };
 
                     // Read current IMU sensor data

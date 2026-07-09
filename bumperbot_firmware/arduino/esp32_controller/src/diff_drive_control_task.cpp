@@ -3,9 +3,9 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
-#include "task_shared_data.hpp"
-#include "quadrature_encoder.hpp"
 #include "l298n_motor.hpp"
+#include "quadrature_encoder.hpp"
+#include "task_shared_data.hpp"
 #include "wheel_controller.hpp"
 
 namespace {
@@ -29,32 +29,28 @@ constexpr unsigned long kEmergencyStopTimeoutMs{2000};
 constexpr double kPulsePerRevolution{1280.0};
 
 // configurable constants (overriden by Config message)
-constexpr double kDefaultPidControlRate{25.0}; // Hz
+constexpr double kDefaultPidControlRate{25.0};  // Hz
 
-constexpr WheelConfig kDefaultRightMotorConfig{
-  .kp = 15.5,
-  .ki = 39.0,
-  .kd = 0.0,
-  .pwm_deadband = 17
-};
+constexpr WheelConfig kDefaultRightMotorConfig{.kp = 15.5,
+                                               .ki = 39.0,
+                                               .kd = 0.0,
+                                               .pwm_deadband = 17};
 
-constexpr WheelConfig kDefaultLeftMotorConfig{
-  .kp = 14.2,
-  .ki = 43.0,
-  .kd = 0.0,
-  .pwm_deadband = 18
-};
+constexpr WheelConfig kDefaultLeftMotorConfig{.kp = 14.2,
+                                              .ki = 43.0,
+                                              .kd = 0.0,
+                                              .pwm_deadband = 18};
 
 // ISRs for wheel encoder callbacks
 WheelController* p_right_wheel{nullptr};
 WheelController* p_left_wheel{nullptr};
 
 void ARDUINO_ISR_ATTR rightWheelEncoderCallback() {
-  p_right_wheel->encoder().update();
+    p_right_wheel->encoder().update();
 }
 
 void ARDUINO_ISR_ATTR leftWheelEncoderCallback() {
-  p_left_wheel->encoder().update();
+    p_left_wheel->encoder().update();
 }
 
 // Task control variables
@@ -85,10 +81,9 @@ void configureWheels(const DiffDriveConfigData& config_data) {
     deactivateWheels();
 };
 
-} // namespace
+}  // namespace
 
-
-void diffDriveControlTask(void *pvParameters) {
+void diffDriveControlTask(void* pvParameters) {
     auto p_task_data = static_cast<TaskSharedData*>(pvParameters);
 
     WheelController right_wheel{
@@ -113,9 +108,10 @@ void diffDriveControlTask(void *pvParameters) {
     p_left_wheel = &left_wheel;
 
     // Initial wheels configuration loop
-    for(;;) {
+    for (;;) {
         DiffDriveConfigData initial_config;
-        if (xQueueReceive(p_task_data->diff_drive_config_queue, &initial_config, portMAX_DELAY) == pdPASS) {
+        if (xQueueReceive(p_task_data->diff_drive_config_queue, &initial_config, portMAX_DELAY) ==
+            pdPASS) {
             configureWheels(initial_config);
             break;
         }
@@ -153,7 +149,8 @@ void diffDriveControlTask(void *pvParameters) {
         }
 
         // Emergency stop if no valid velocity message received within timeout
-        if ((xTaskGetTickCount() - last_valid_msg_time_ticks) * portTICK_PERIOD_MS >= kEmergencyStopTimeoutMs) {
+        if ((xTaskGetTickCount() - last_valid_msg_time_ticks) * portTICK_PERIOD_MS >=
+            kEmergencyStopTimeoutMs) {
             deactivateWheels();
         }
 

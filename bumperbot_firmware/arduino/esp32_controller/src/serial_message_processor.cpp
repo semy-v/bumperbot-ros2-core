@@ -6,7 +6,8 @@
 
 #include "serial_message_processor.hpp"
 
-SerialInputProcessor::Result SerialInputProcessor::processAllSerialInputMessages(const MsgId expected_msg_id) {
+SerialInputProcessor::Result SerialInputProcessor::processAllSerialInputMessages(
+    const MsgId expected_msg_id) {
     auto next_msg_result = processNextSerialInputMessage(expected_msg_id);
     bool valid_message_found = (Result::Success == next_msg_result);
 
@@ -21,7 +22,8 @@ SerialInputProcessor::Result SerialInputProcessor::processAllSerialInputMessages
     return valid_message_found ? Result::Success : next_msg_result;
 }
 
-SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage(const MsgId expected_msg_id) {
+SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage(
+    const MsgId expected_msg_id) {
     Result result{Result::MessageUnavailable};
 
     while (Serial.available()) {
@@ -59,12 +61,11 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
                         .id = SensorTaskEventId::ImuConfig,
                         .payload = opt_imu_config.value().calibrate_period_ms};
 
-                    // Collisions with other event(s) not expected due to sequential request/response messages
-                    // so we can safely overwrite the notification value with the new event
-                    xTaskNotify(
-                        task_shared_data_.sensor_read_task_handle,
-                        std::bit_cast<uint32_t>(imu_config_event),
-                        eSetValueWithOverwrite);
+                    // Collisions with other event(s) not expected due to sequential
+                    // request/response messages so we can safely overwrite the notification value
+                    // with the new event
+                    xTaskNotify(task_shared_data_.sensor_read_task_handle,
+                                std::bit_cast<uint32_t>(imu_config_event), eSetValueWithOverwrite);
 
                     return Result::Success;
                 }
@@ -75,25 +76,25 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
                     }
 
                     // send target velocity data to the control task
-                    xQueueOverwrite(task_shared_data_.diff_drive_command_queue, &opt_command.value().velocity);
+                    xQueueOverwrite(task_shared_data_.diff_drive_command_queue,
+                                    &opt_command.value().velocity);
 
                     SensorTaskEvent sensor_read_event{
                         .id = SensorTaskEventId::SensorRead,
                         .payload = opt_command.value().response_delay_ms};
 
-                    // Collisions with other event(s) not expected due to sequential request/response messages 
-                    // so we can safely overwrite the notification value with the new event
-                    xTaskNotify(
-                        task_shared_data_.sensor_read_task_handle,
-                        std::bit_cast<uint32_t>(sensor_read_event),
-                        eSetValueWithOverwrite);
+                    // Collisions with other event(s) not expected due to sequential
+                    // request/response messages so we can safely overwrite the notification value
+                    // with the new event
+                    xTaskNotify(task_shared_data_.sensor_read_task_handle,
+                                std::bit_cast<uint32_t>(sensor_read_event), eSetValueWithOverwrite);
 
                     return Result::Success;
                 }
                 case MsgId::Deactivate:
                     if (nullptr != task_shared_data_.diff_drive_control_task_handle) {
-                        xTaskNotifyGiveIndexed(
-                            task_shared_data_.diff_drive_control_task_handle, kDeactivateNotifyIndex);
+                        xTaskNotifyGiveIndexed(task_shared_data_.diff_drive_control_task_handle,
+                                               kDeactivateNotifyIndex);
                     }
                     // send Deactivate message in response
                     sendSerialMessage<MsgId::Deactivate>();
