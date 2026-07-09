@@ -18,6 +18,8 @@ class ImuSensorHandler {
     struct ImuSensorData {
         double angular_velocity_x{0.0}, angular_velocity_y{0.0}, angular_velocity_z{0.0};
         double linear_acceleration_x{0.0}, linear_acceleration_y{0.0}, linear_acceleration_z{0.0};
+        // orientation values will not be updated
+        // keeping for compatibility with IMU broadcaster controller
         double orientation_x{0.0}, orientation_y{0.0}, orientation_z{0.0}, orientation_w{1.0};
     };
 

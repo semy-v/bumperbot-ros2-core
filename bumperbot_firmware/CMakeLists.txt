@@ -43,11 +43,11 @@ ament_target_dependencies(${PROJECT_NAME}
 pluginlib_export_plugin_description_file(hardware_interface robot_system_interface.xml)
 
 install(PROGRAMS
-  ${PROJECT_NAME}/diff_drive/diff_drive_messages.py
-  ${PROJECT_NAME}/diff_drive/serial_transceiver_node.py
-  ${PROJECT_NAME}/diff_drive/velocity_cmd_test_runner_node.py
-  ${PROJECT_NAME}/imu/mpu6050_driver.py
-  ${PROJECT_NAME}/imu/mpu6050_node.py
+  ${PROJECT_NAME}/imu_manager.py
+  ${PROJECT_NAME}/diff_drive_manager.py
+  ${PROJECT_NAME}/system_messages.py
+  ${PROJECT_NAME}/serial_transceiver_node.py
+  ${PROJECT_NAME}/velocity_cmd_test_runner_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

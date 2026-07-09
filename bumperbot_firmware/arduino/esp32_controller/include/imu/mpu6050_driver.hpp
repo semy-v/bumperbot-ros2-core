@@ -84,6 +84,10 @@ class MPU6050 {
   }
 
   std::optional<mpu6050::IMUData> read() {
+    if (!isConnected()) {
+      return std::nullopt;
+    }
+
     const auto rawOpt = readRaw();
     if (!rawOpt.has_value()) {
       return std::nullopt;
