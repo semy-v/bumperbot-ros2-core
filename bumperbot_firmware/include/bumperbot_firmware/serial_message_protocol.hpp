@@ -5,19 +5,18 @@
 #include <vector>
 
 #include "diff_drive_deserialize.hpp"
-#include "diff_drive_serialize.hpp"
 #include "diff_drive_messages.hpp"
+#include "diff_drive_serialize.hpp"
 
 namespace bumperbot_firmware {
 
 template <MessageRegistryConcept Registry>
 class SerialMessageProtocol {
-public:
+   public:
     SerialMessageProtocol() {
         // reserve max possible frame size in internal buffer
         // to prevent buffer reallocations during serialization
-        send_msg_buffer_.reserve(
-            SystemMessageSerializer::getMaxFrameSize());
+        send_msg_buffer_.reserve(SystemMessageSerializer::getMaxFrameSize());
     }
 
     ~SerialMessageProtocol() = default;
@@ -34,9 +33,7 @@ public:
         return SystemMessageSerializer::template getFrameSize<TargetId>();
     }
 
-    void reset() {
-        deserializer_.reset();
-    }
+    void reset() { deserializer_.reset(); }
 
     // Serialize Non-Zero Payload Message
     template <typename TData>
@@ -104,7 +101,7 @@ public:
         return valid_message_found_;
     }
 
-private:
+   private:
     using SystemMessageSerializer = MessageSerializer<Registry>;
     using SystemMessageStreamDeserializer = MessageStreamDeserializer<Registry>;
 
@@ -114,7 +111,6 @@ private:
 
     // serialize members
     std::vector<uint8_t> send_msg_buffer_;
-
 
     bool deserializeNextMessage(std::vector<uint8_t>& stream_buffer, std::string& error_message) {
         if (stream_buffer.empty()) {

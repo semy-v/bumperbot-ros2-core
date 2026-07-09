@@ -133,8 +133,8 @@ class MPU6050 {
   std::optional<mpu6050::RawIMUData> readRaw() {
     std::array<uint8_t, 14> buffer{};
 
-    // If the read fails (e.g., loose wire), return null optional to indicate
-    // failure
+    // If the read fails (e.g. loose wire),
+    // return null optional to indicate failure
     if (!bus_.readBlock(address_, mpu6050::kAccelXoutHReg, buffer)) {
       return std::nullopt;
     }

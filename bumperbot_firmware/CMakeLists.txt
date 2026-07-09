@@ -24,7 +24,9 @@ include(find_libserial.cmake)
 ament_python_install_package(${PROJECT_NAME})
 
 add_library(${PROJECT_NAME} SHARED
-  src/diff_drive/robot_system_interface.cpp
+  src/diff_drive_handler.cpp
+  src/imu_sensor_handler.cpp
+  src/robot_system_interface.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
   include

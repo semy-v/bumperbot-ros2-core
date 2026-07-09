@@ -1,21 +1,21 @@
 #ifndef SERIAL_MESSAGE_TRANSCEIVER_HPP
 #define SERIAL_MESSAGE_TRANSCEIVER_HPP
 
-#include <format>
-#include <vector>
-#include <string>
-#include <algorithm>
 #include <libserial/SerialPort.h>
+#include <algorithm>
+#include <format>
+#include <string>
+#include <vector>
 
 namespace bumperbot_firmware {
 
 namespace {
-    constexpr size_t kMinReadWaitTimeMs{1};
-} // namespace
+constexpr size_t kMinReadWaitTimeMs{1};
+}  // namespace
 
 template <typename SerialProtocol>
 class SerialMessageTransceiver {
-public:
+   public:
     SerialMessageTransceiver() {
         constexpr size_t kReserveBufferSize{256};
         constexpr size_t kMaxErrorMessageLength{64};
@@ -35,13 +35,9 @@ public:
         }
     }
 
-    [[nodiscard]] bool isDataAvailable() {
-        return serial_.GetNumberOfBytesAvailable();
-    }
+    [[nodiscard]] bool isDataAvailable() { return serial_.GetNumberOfBytesAvailable(); }
 
-    [[nodiscard]] const std::string& lastErrorMessage() const {
-        return error_message_;
-    }
+    [[nodiscard]] const std::string& lastErrorMessage() const { return error_message_; }
 
     template <typename TData>
     void writeMessage(const TData& data) {
@@ -64,8 +60,8 @@ public:
             return std::nullopt;
         }
 
-        return protocol_.template deserializeLastStreamMessage<TData>(
-            receive_buffer_, error_message_);
+        return protocol_.template deserializeLastStreamMessage<TData>(receive_buffer_,
+                                                                      error_message_);
     }
 
     template <MsgId TargetId>
@@ -79,14 +75,15 @@ public:
             return false;
         }
 
-        return protocol_.template deserializeLastStreamMessage<TargetId>(
-            receive_buffer_, error_message_);
+        return protocol_.template deserializeLastStreamMessage<TargetId>(receive_buffer_,
+                                                                         error_message_);
     }
 
     template <typename TData>
     std::optional<TData> readLastMessageData() {
         return processStream<std::optional<TData>>([this](std::optional<TData>& result) {
-            result = protocol_.template deserializeLastStreamMessage<TData>(receive_buffer_, error_message_);
+            result = protocol_.template deserializeLastStreamMessage<TData>(receive_buffer_,
+                                                                            error_message_);
             return result.has_value();
         });
     }
@@ -94,24 +91,21 @@ public:
     template <MsgId TargetId>
     bool readLastMessage() {
         return processStream<bool>([this](bool& result) {
-            result = protocol_.template deserializeLastStreamMessage<TargetId>(receive_buffer_, error_message_);
+            result = protocol_.template deserializeLastStreamMessage<TargetId>(receive_buffer_,
+                                                                               error_message_);
             return result;
         });
     }
 
-private:
+   private:
     LibSerial::SerialPort serial_;
     SerialProtocol protocol_;
     std::vector<uint8_t> receive_buffer_;
     std::string error_message_;
 
-    void setError(std::string_view msg) {
-        error_message_ = msg;
-    }
+    void setError(std::string_view msg) { error_message_ = msg; }
 
-    void writeRaw(const std::vector<uint8_t>& payload) {
-        serial_.Write(payload);
-    }
+    void writeRaw(const std::vector<uint8_t>& payload) { serial_.Write(payload); }
 
     bool readExactBytes(size_t bytes_to_read, size_t wait_time_ms) {
         if (bytes_to_read == 0) {
@@ -156,6 +150,6 @@ private:
     }
 };
 
-} // namespace bumperbot_firmware
+}  // namespace bumperbot_firmware
 
-#endif // SERIAL_MESSAGE_TRANSCEIVER_HPP
+#endif  // SERIAL_MESSAGE_TRANSCEIVER_HPP
