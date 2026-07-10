@@ -162,6 +162,11 @@ diff_drive_controller:
     # This matches the wheel encoder update rate produced by the firmware.
     publish_rate: 50.0
 
+    # Position feedback from hardware is disabled.
+    #
+    # Odometry is calculated purely from the wheel velocities.
+    position_feedback: false
+
     # Estimated odometry covariance matrices.
     #
     # These values describe the confidence in the wheel odometry estimate and
