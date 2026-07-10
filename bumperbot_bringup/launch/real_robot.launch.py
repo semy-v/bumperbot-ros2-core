@@ -14,14 +14,6 @@ def generate_launch_description():
         )
     )
 
-    imu = IncludeLaunchDescription(
-        os.path.join(
-            get_package_share_directory("bumperbot_firmware"),
-            "launch",
-            "imu.launch.py"
-        )
-    )
-
     controllers = IncludeLaunchDescription(
         os.path.join(
             get_package_share_directory("bumperbot_controller"),
@@ -56,7 +48,6 @@ def generate_launch_description():
     
     return LaunchDescription([
         controller_manager,
-        imu,
         controllers,
         localization,
         motion,

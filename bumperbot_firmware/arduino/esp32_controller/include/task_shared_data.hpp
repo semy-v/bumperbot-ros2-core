@@ -5,16 +5,34 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
-void diffDriveControlTask(void *pvParameters);
-void serialProcessTask(void *pvParameters);
+#include <bit>
+#include <cstdint>
 
+// task function prototypes
+void diffDriveControlTask(void* pvParameters);
+void serialProcessTask(void* pvParameters);
+void sensorReadTask(void* pvParameters);
+
+// diff drive control task event notifications
 constexpr uint8_t kDeactivateNotifyIndex{0u};
 
-struct TaskSharedData {
-    QueueHandle_t config_message_queue;
-    QueueHandle_t current_velocity_queue;
-    QueueHandle_t target_velocity_message_queue;
-    TaskHandle_t diff_drive_control_task_handle;
+// sensor read task event notifications
+enum class SensorTaskEventId : uint32_t { SensorRead = 0u, ImuConfig = 1u };
+
+struct SensorTaskEvent {
+    SensorTaskEventId id : 2;  // 2 bits for event ID
+    uint32_t payload : 30;     // 30 bits for payload
 };
 
-#endif // TASK_SHARED_DATA_HPP
+static_assert(sizeof(SensorTaskEvent) == sizeof(uint32_t), "SensorTaskEvent size mismatch!");
+
+// shared data structure for inter-task usage
+struct TaskSharedData {
+    QueueHandle_t diff_drive_config_queue;
+    QueueHandle_t diff_drive_command_queue;
+    QueueHandle_t diff_drive_state_queue;
+    TaskHandle_t diff_drive_control_task_handle;
+    TaskHandle_t sensor_read_task_handle;
+};
+
+#endif  // TASK_SHARED_DATA_HPP

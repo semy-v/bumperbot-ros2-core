@@ -4,9 +4,8 @@
 
 #include "serial_message_processor.hpp"
 
-void serialProcessTask(void *pvParameters) {
-    SerialInputProcessor serial_processor(
-        *static_cast<TaskSharedData*>(pvParameters));
+void serialProcessTask(void* pvParameters) {
+    SerialInputProcessor serial_processor(*static_cast<TaskSharedData*>(pvParameters));
 
     for (;;) {
         serial_processor.processAllSerialInputMessages();

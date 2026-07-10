@@ -1,16 +1,15 @@
 #ifndef L298N_MOTOR_HPP
 #define L298N_MOTOR_HPP
 
+#include <Arduino.h>
+
 /**
  * L298N DC motor driver class.
  */
 class L298NMotor {
-public:
+ public:
     L298NMotor(uint8_t en_pin, uint8_t in1_pin, uint8_t in2_pin)
-        : en_pin_(en_pin)
-        , in1_pin_(in1_pin)
-        , in2_pin_(in2_pin)
-    {}
+        : en_pin_(en_pin), in1_pin_(in1_pin), in2_pin_(in2_pin) {}
 
     ~L298NMotor() = default;
 
@@ -39,8 +38,8 @@ public:
         analogWrite(en_pin_, (pwm > 255) ? 255 : pwm);
     }
 
-private:
+ private:
     const uint8_t en_pin_, in1_pin_, in2_pin_;
 };
 
-#endif // L298N_MOTOR_HPP
+#endif  // L298N_MOTOR_HPP

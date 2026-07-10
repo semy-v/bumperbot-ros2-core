@@ -3,24 +3,26 @@
 // #define DEAD_BAND_CALIBRATION 120
 
 WheelController::WheelController(const L298NMotor& motor,
-                    const QuadratureEncoder& encoder,
-                    const double pid_control_rate,
-                    const WheelConfig& wheel_config,
-                    const double ticks_per_rev,
-                    bool invert_logic)
-  : motor_(motor)
-  , encoder_(encoder)
-  , ticks_per_rev_(ticks_per_rev)
-  , invert_logic_(invert_logic)
-  , pid_(&current_velocity_, &pwm_cmd_, &target_velocity_,
-          wheel_config.kp, wheel_config.ki, wheel_config.kd, DIRECT) 
-{
+                                 const QuadratureEncoder& encoder,
+                                 const double pid_control_rate,
+                                 const WheelConfig& wheel_config,
+                                 const double ticks_per_rev,
+                                 bool invert_logic)
+    : motor_(motor),
+      encoder_(encoder),
+      ticks_per_rev_(ticks_per_rev),
+      invert_logic_(invert_logic),
+      pid_(&current_velocity_,
+           &pwm_cmd_,
+           &target_velocity_,
+           wheel_config.kp,
+           wheel_config.ki,
+           wheel_config.kd,
+           DIRECT) {
     configure(pid_control_rate, wheel_config);
 }
 
-void WheelController::configure(const double pid_control_rate,
-                const WheelConfig& wheel_config)
-{
+void WheelController::configure(const double pid_control_rate, const WheelConfig& wheel_config) {
     reset();
 
     pid_.SetTunings(wheel_config.kp, wheel_config.ki, wheel_config.kd);
@@ -46,21 +48,21 @@ void WheelController::begin() {
 
 void WheelController::setActive(bool active) {
     if (is_active_ == active) {
-        return; 
+        return;
     }
 
     is_active_ = active;
     if (!is_active_) {
         // Clear target velocity
         target_velocity_ = 0.0;
-        
-        // Stop motor. 
+
+        // Stop motor.
         pwm_cmd_ = 0.0;
-        motor_.setPWM(0); 
+        motor_.setPWM(0);
 
         // reset PID internal memory so
         // it doesn't wind up while deactivated
-        reset(); 
+        reset();
     }
 }
 
@@ -79,7 +81,7 @@ void WheelController::update(const double dt_sec) {
     // Skip PID and motor updates while deactivated
     if (!is_active_) {
         last_ticks_ = current_ticks;
-        return; 
+        return;
     }
 
     // Zero-Velocity Clamp
@@ -87,7 +89,7 @@ void WheelController::update(const double dt_sec) {
         // Force the motor command to exactly 0
         pwm_cmd_ = 0.0;
 
-        // Reset the PID's internal Integral (I) memory 
+        // Reset the PID's internal Integral (I) memory
         // so it doesn't wind up while sitting still.
         reset();
     } else {
@@ -107,14 +109,13 @@ void WheelController::update(const double dt_sec) {
 
 #ifndef DEAD_BAND_CALIBRATION
     motor_.setPWM(static_cast<int16_t>(pwm_cmd_));
-#else // DEAD_BAND_CALIBRATION
+#else   // DEAD_BAND_CALIBRATION
     if (target_velocity_ != 0.0) {
-        motor_.setPWM(
-            target_velocity_ > 0.0 ? DEAD_BAND_CALIBRATION : -DEAD_BAND_CALIBRATION);
+        motor_.setPWM(target_velocity_ > 0.0 ? DEAD_BAND_CALIBRATION : -DEAD_BAND_CALIBRATION);
     } else {
         motor_.setPWM(0);
     }
-#endif // DEAD_BAND_CALIBRATION
+#endif  // DEAD_BAND_CALIBRATION
 
     last_ticks_ = current_ticks;
 }

@@ -24,8 +24,9 @@ include(find_libserial.cmake)
 ament_python_install_package(${PROJECT_NAME})
 
 add_library(${PROJECT_NAME} SHARED
-  src/diff_drive/diff_drive_interface.cpp
-  src/diff_drive/binary_message_protocol.cpp
+  src/diff_drive_handler.cpp
+  src/imu_sensor_handler.cpp
+  src/robot_system_interface.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
   include
@@ -39,14 +40,14 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_lifecycle
 )
-pluginlib_export_plugin_description_file(hardware_interface diff_drive_interface.xml)
+pluginlib_export_plugin_description_file(hardware_interface robot_system_interface.xml)
 
 install(PROGRAMS
-  ${PROJECT_NAME}/diff_drive/diff_drive_messages.py
-  ${PROJECT_NAME}/diff_drive/serial_transceiver_node.py
-  ${PROJECT_NAME}/diff_drive/velocity_cmd_test_runner_node.py
-  ${PROJECT_NAME}/imu/mpu6050_driver.py
-  ${PROJECT_NAME}/imu/mpu6050_node.py
+  ${PROJECT_NAME}/imu_manager.py
+  ${PROJECT_NAME}/diff_drive_manager.py
+  ${PROJECT_NAME}/system_messages.py
+  ${PROJECT_NAME}/serial_transceiver_node.py
+  ${PROJECT_NAME}/velocity_cmd_test_runner_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

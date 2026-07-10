@@ -1,5 +1,9 @@
 serial_transceiver:
   ros__parameters:
+    port: "/dev/ttyACM0"
+    baudrate: 115200
+    imu_frame_id: "imu_link"
+    imu_calibration_ms: 2000
     pid_rate: 50.0
     r_wheel_kp: 15.5
     r_wheel_ki: 39.0
