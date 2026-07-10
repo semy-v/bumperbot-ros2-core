@@ -35,7 +35,10 @@ class SerialMessageTransceiver {
         }
     }
 
-    [[nodiscard]] bool isDataAvailable() { return serial_.GetNumberOfBytesAvailable(); }
+    [[nodiscard]] std::size_t numberOfBytesAvailable() {
+        bytes_available_ = static_cast<std::size_t>(serial_.GetNumberOfBytesAvailable());
+        return bytes_available_;
+    }
 
     [[nodiscard]] const std::string& lastErrorMessage() const { return error_message_; }
 
@@ -52,7 +55,9 @@ class SerialMessageTransceiver {
     template <typename TData>
     std::optional<TData> waitForNextMessageData(const size_t wait_time_ms) {
         // If ANY message already in the buffer, then read and discard ALL of them
-        readLastMessageData<TData>();
+        if (numberOfBytesAvailable() > 0) {
+            readLastMessageData<TData>();
+        }
 
         // Wait and read next expected message
         const size_t expected_bytes = protocol_.template getFrameSize<TData>();
@@ -67,7 +72,9 @@ class SerialMessageTransceiver {
     template <MsgId TargetId>
     bool waitForNextMessage(const size_t wait_time_ms) {
         // If ANY message already in the buffer, then read and discard ALL of them
-        readLastMessage<TargetId>();
+        if (numberOfBytesAvailable() > 0) {
+            readLastMessage<TargetId>();
+        }
 
         // Wait and read next expected message
         const size_t expected_bytes = protocol_.template getFrameSize<TargetId>();
@@ -102,6 +109,7 @@ class SerialMessageTransceiver {
     SerialProtocol protocol_;
     std::vector<uint8_t> receive_buffer_;
     std::string error_message_;
+    std::size_t bytes_available_{0};
 
     void setError(std::string_view msg) { error_message_ = msg; }
 
@@ -125,9 +133,9 @@ class SerialMessageTransceiver {
     }
 
     void readAvailableBytes() {
-        const size_t available = serial_.GetNumberOfBytesAvailable();
-        if (available > 0) {
-            serial_.Read(receive_buffer_, available, kMinReadWaitTimeMs);
+        if (bytes_available_ > 0) {
+            serial_.Read(receive_buffer_, bytes_available_, kMinReadWaitTimeMs);
+            bytes_available_ = 0;
         }
     }
 

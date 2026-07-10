@@ -257,7 +257,7 @@ hardware_interface::return_type RobotSystemInterface::write(const rclcpp::Time&,
 
 bool RobotSystemInterface::processSystemStateMessage() {
     auto logger = rclcpp::get_logger("RobotSystemInterface");
-    if (!transceiver_.isDataAvailable()) {
+    if (0 == transceiver_.numberOfBytesAvailable()) {
         velocity_read_error_count_++;
         return false;
     }
