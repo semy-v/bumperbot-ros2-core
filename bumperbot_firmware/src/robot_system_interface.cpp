@@ -5,37 +5,44 @@
  * ----------------------------------------------------------
  * This hardware interface acts as the "Master" in the communication protocol.
  * It drives the state machine transitions and pushes real-time commands to the
- * microcontroller.
+ * microcontroller while delegating state/command processing to modular subsystem
+ * handlers (`DifferentialDriveHandler` and `ImuSensorHandler`).
  *
  * 1. STARTUP & HANDSHAKE (on_configure)
- * - Opens the serial port and waits 200ms to ensure the Arduino bootloader
- * finishes.
- * - Sends a `Config` message containing PID parameters and deadband limits.
- * - Blocks and waits for the Arduino to echo the exact same `Config` message
- * back.
- * - Validates the echoed message to guarantee the MCU is running the correct
- * parameters.
+ * - Opens the serial port (`/dev/ttyACM0` by default) and waits 200ms for the
+ * Arduino bootloader to settle.
+ * - Phase 1 (IMU Calibration): Sends an initial `ImuConfigData` message specifying
+ * the calibration period (2000ms) and blocks while waiting for an echo confirmation.
+ * - Phase 2 (Wheel Config): Sends a `DiffDriveConfigData` message containing PID rate,
+ * gains (kp, ki, kd), and PWM deadband limits for both wheels.
+ * - Blocks and waits for the Arduino to echo the exact same config parameters back,
+ * validating the MCU is running the correct parameters before continuing.
  *
  * 2. ACTIVATION (on_activate)
+ * - Resets all internal odometry and wheel command/state values to zero via the handler.
  * - Sends an initial `Velocity` command of {0.0, 0.0} to instruct the Arduino
  * to energize the motor drivers (activate torque).
- * - Blocks and waits for the Arduino to reply with its current zeroed
- * `Velocity` state.
+ * - Blocks and waits for the Arduino to reply with its current zeroed `SystemStateData`.
+ * - Measures communication roundtrip latency to dynamically compute a communications budget
+ * and calculates the appropriate `response_delay_ms` for subsequent control loop cycles.
  *
  * 3. REAL-TIME LOOP (read / write)
- * - `read()`: Pulls asynchronous `Velocity` responses from the serial buffer.
- * These responses are the physical feedback triggered by the *previous* cycle's
- * write() command. It integrates this velocity over the loop period (dt) to
- * calculate odometry/position.
- * - `write()`: Pushes the new target `Velocity` to the Arduino. This acts as a
- * continuous heartbeat. If the Arduino does not receive this, it will trigger
- * an emergency stop.
+ * - `read()`: Pulls asynchronous `SystemStateData` responses from the serial buffer.
+ * These responses represent the physical feedback triggered by the *previous* cycle's
+ * write() command.
+ * - Delegates wheel velocity parsing and odometry integration (dt) to `diff_drive_handler_`.
+ * - Delegates IMU telemetry extraction (angular velocity, linear acceleration) to `imu_handler_`.
+ * - **Dynamic Degradation**: Checks `SystemStateFlags::ImuUnavailable`. If IMU data drops out,
+ * it invalidates the IMU state interfaces (e.g., by setting values to quiet NaN) without
+ * halting the differential drive control loop.
+ * - `write()`: Pushes the new target `DiffDriveCommandData` (wheel velocities and computed
+ * response delay) to the Arduino. This acts as a continuous heartbeat; missing packets will
+ * trigger an emergency stop on the MCU.
  *
- * 4. DEACTIVATION & CLEANUP (on_deactivate / on_cleanup / on_shutdown)
- * - Sends a `Deactivate` message commanding the MCU to drop motor torque.
- * - Blocks and waits for the Arduino to echo the `Deactivate` message as
- * confirmation.
- * - Safely closes the serial port connection.
+ * 4. DEACTIVATION & CLEANUP (on_deactivate / on_cleanup / on_shutdown / on_error)
+ * - Sends a `Deactivate` message commanding the MCU to safely drop motor torque.
+ * - Blocks and waits for the Arduino to echo the `Deactivate` message as confirmation.
+ * - Safely terminates open serial connections and releases interface locks.
  */
 
 #include "bumperbot_firmware/robot_system_interface.hpp"

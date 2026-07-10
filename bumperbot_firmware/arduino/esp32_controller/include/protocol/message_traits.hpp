@@ -71,8 +71,8 @@ constexpr uint16_t calculateHeaderCRC(std::byte start, MsgId id, uint8_t length)
 constexpr uint16_t calculateCRC16(std::span<const std::byte> data, uint16_t initial_crc = 0xFFFF) {
     uint16_t crc = initial_crc;
 
-    for (const std::byte byte : data) {
-        crc = crcByte(crc, byte);
+    for (const auto b : data) {
+        crc = crcByte(crc, b);
     }
 
     return crc;

@@ -32,7 +32,6 @@ class SerialInputProcessor {
     enum Result { Success = 0, MessageUnavailable = 1, MessageInvalid = 2 };
 
     SerialInputProcessor(TaskSharedData& shared_data) : task_shared_data_(shared_data) {}
-
     ~SerialInputProcessor() = default;
 
     SerialInputProcessor(const SerialInputProcessor&) = delete;

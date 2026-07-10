@@ -1,7 +1,8 @@
 #ifndef SYSTEM_MESSAGES_HPP
 #define SYSTEM_MESSAGES_HPP
 
-#include <stdint.h>
+#include <cstdint>
+
 #include "message_traits.hpp"
 #include "system_data.hpp"
 

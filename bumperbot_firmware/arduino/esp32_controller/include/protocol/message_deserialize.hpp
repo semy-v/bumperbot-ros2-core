@@ -12,7 +12,7 @@
 
 static_assert(
     std::endian::native == std::endian::little,
-    "Message protocol requires unified little-endian platform between communication parties");
+    "Message protocol requires unified endianness between communication parties");
 
 // Represents the result of feeding a single byte into the deserializer
 enum class ProcessResult {
