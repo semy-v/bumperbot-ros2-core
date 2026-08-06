@@ -50,11 +50,8 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
-#include "l298n_motor.hpp"
-#include "quadrature_encoder.hpp"
 #include "serial_message_processor.hpp"
 #include "task_shared_data.hpp"
-#include "wheel_controller.hpp"
 
 namespace {
 // CPU core 0 tasks

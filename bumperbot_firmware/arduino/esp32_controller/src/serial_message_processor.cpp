@@ -43,8 +43,13 @@ SerialInputProcessor::Result SerialInputProcessor::processNextSerialInputMessage
                         return Result::MessageInvalid;
                     }
 
+                    const auto& config = opt_config.value();
+                    if (!config.valid()) {
+                        return Result::MessageInvalid;
+                    }
+
                     // send config data to the control task
-                    xQueueOverwrite(task_shared_data_.diff_drive_config_queue, &opt_config.value());
+                    xQueueOverwrite(task_shared_data_.diff_drive_config_queue, &config);
 
                     // send same config data message in response
                     sendSerialMessage(opt_config.value());

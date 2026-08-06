@@ -31,4 +31,6 @@ inline constexpr uint8_t kRightMotorDirectionPin{8};
 /// Arduino PWM output pin connected to the right motor PWM input.
 inline constexpr uint8_t kRightMotorSpeedCommandPin{10};
 
+inline constexpr uint16_t kEmergencyStopTimeoutMs{2000};
+
 #endif  // DIFF_DRIVE_CONSTANTS_HPP

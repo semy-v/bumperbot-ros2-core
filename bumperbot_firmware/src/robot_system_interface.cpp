@@ -137,13 +137,19 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
         return CallbackReturn::ERROR;
     }
     if (*cfg_resp != diff_drive_handler_.getConfig()) {
+        const auto& right = cfg_resp->right_wheel;
+        const auto& left = cfg_resp->left_wheel;
         RCLCPP_ERROR(logger,
-                     "Differential drive handshake mismatch: PID rate %.1f Hz | "
-                     "Right wheel config: { kp - %.1f, ki - %.1f, kd - %.1f } | "
-                     "Left wheel config: { kp - %.1f, ki - %.1f, kd - %.1f }",
-                     cfg_resp->pid_rate, cfg_resp->r_wheel.kp, cfg_resp->r_wheel.ki,
-                     cfg_resp->r_wheel.kd, cfg_resp->l_wheel.kp, cfg_resp->l_wheel.ki,
-                     cfg_resp->l_wheel.kd);
+                     "Differential drive handshake mismatch: control rate %u Hz | "
+                     "Right wheel: { Ks=%.4f, Kv=%.4f, Kp=%.4f, Ki=%.4f, Kd=%.4f, "
+                     "max feedback=%u PWM } | "
+                     "Left wheel: { Ks=%.4f, Kv=%.4f, Kp=%.4f, Ki=%.4f, Kd=%.4f, "
+                     "max feedback=%u PWM }",
+                     static_cast<unsigned>(cfg_resp->control_rate_hz), right.feedforward_ks,
+                     right.feedforward_kv, right.feedback_kp, right.feedback_ki, right.feedback_kd,
+                     static_cast<unsigned>(right.max_feedback_pwm), left.feedforward_ks,
+                     left.feedforward_kv, left.feedback_kp, left.feedback_ki, left.feedback_kd,
+                     static_cast<unsigned>(left.max_feedback_pwm));
         return CallbackReturn::ERROR;
     }
 

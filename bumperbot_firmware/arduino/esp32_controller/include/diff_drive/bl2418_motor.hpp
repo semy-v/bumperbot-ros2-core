@@ -11,7 +11,7 @@ class BL2418Motor {
      * @param direction_pin Arduino pin connected to the BL2418 CW/CCW input.
      * @param speed_control_pin Arduino PWM-capable pin connected to the BL2418
      *        PWM input.
-     * @param invert_direction When set to true, swaps the logical forward and
+     * @param invert_logic When set to true, swaps the logical forward and
      *        reverse directions. This is useful for differential-drive robots
      *        where the left and right motors are mounted as mirror images.
      *
@@ -19,18 +19,11 @@ class BL2418Motor {
      * always correspond to the robot's logical forward wheel rotation, regardless
      * of the physical motor orientation.
      */
-    BL2418Motor(uint8_t direction_pin, uint8_t speed_control_pin, bool invert_direction)
-        : direction_pin_(direction_pin),
-          speed_control_pin_(speed_control_pin),
-          speed_channel_{next_channel_++},
-          forward_direction_value_{invert_direction ? LOW : HIGH},
-          reverse_direction_value_{invert_direction ? HIGH : LOW} {
-        assert(speed_channel_ < SOC_LEDC_CHANNEL_NUM);
-    }
+    BL2418Motor(uint8_t direction_pin, uint8_t speed_control_pin, bool invert_logic);
 
     ~BL2418Motor() = default;
 
-    BL2418Motor(const BL2418Motor&) = default;
+    BL2418Motor(const BL2418Motor&) = delete;
     BL2418Motor(BL2418Motor&&) = delete;
     BL2418Motor& operator=(const BL2418Motor&) = delete;
     BL2418Motor& operator=(BL2418Motor&&) = delete;
@@ -44,17 +37,7 @@ class BL2418Motor {
      * @note The BL2418 PWM input is active-low. A constant HIGH level disables the
      * motor output.
      */
-    void begin() {
-        pinMode(direction_pin_, OUTPUT);
-
-        // Configure the default logical forward direction before enabling
-        // the PWM output to avoid an unintended direction change during
-        // initialization.
-        digitalWrite(direction_pin_, forward_direction_value_);
-
-        attachSpeedPwm();
-        writeSpeedPwm(kMotorOffDuty);
-    }
+    void begin();
 
     /**
      * @brief Sets the motor speed and logical rotation direction.
@@ -72,25 +55,16 @@ class BL2418Motor {
      * - speed = 0   → duty = 255 → motor OFF
      * - speed = 255 → duty = 0   → maximum motor speed
      */
-    void setPwmSpeed(int speed) {
-        if (speed >= 0) {
-            digitalWrite(direction_pin_, forward_direction_value_);
-        } else {
-            digitalWrite(direction_pin_, reverse_direction_value_);
-            speed = -speed;
-        }
-
-        speed = std::clamp(speed, 0, 255);
-        // Convert the requested speed into the active-low PWM duty
-        const uint8_t duty = kMotorOffDuty - static_cast<uint8_t>(speed);
-        writeSpeedPwm(duty);
-    }
+    void setPwmSpeed(int speed);
 
  private:
+    static constexpr int kMaxPwmSpeed{255};
+    static constexpr int kMinPwmSpeed{0};
+
     // Recommended PWM frequency from the BL2418 datasheet:
     // typical operating range 15-25 kHz (60 kHz maximum). A frequency of 25 kHz is selected to
     // minimize audible noise while remaining within the recommended range.
-    static constexpr uint32_t kFrequency{25000};  // 25 kHz
+    static constexpr uint32_t kFrequency{25000};
 
     // 8-bit PWM resolution (0-255 duty cycle).
     static constexpr uint8_t kResolution{8};
