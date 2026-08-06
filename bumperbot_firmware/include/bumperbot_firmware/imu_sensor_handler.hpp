@@ -9,7 +9,7 @@
 #include <hardware_interface/system_interface.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "system_data.hpp"
+#include "protocol/system_data.hpp"
 
 namespace bumperbot_firmware {
 

@@ -1,0 +1,11 @@
+{
+  "name": "bumperbot-hal",
+  "version": "0.1.0",
+  "description": "Bumperbot hardware abstraction layer components",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "build": {
+    "includeDir": "include",
+    "srcDir": "src"
+  }
+}

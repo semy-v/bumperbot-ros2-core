@@ -5,7 +5,7 @@
 
 class WheelVelocityEstimator {
  public:
-    WheelVelocityEstimator(float ticks_per_rev);
+    explicit WheelVelocityEstimator(float ticks_per_rev);
 
     void configure(const uint32_t control_period_ms);
 

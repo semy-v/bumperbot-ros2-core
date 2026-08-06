@@ -53,7 +53,7 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 
 #include "bumperbot_firmware/hardware_interface_helpers.hpp"
-#include "system_data.hpp"
+#include "protocol/system_data.hpp"
 
 namespace bumperbot_firmware {
 

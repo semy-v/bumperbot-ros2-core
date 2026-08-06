@@ -30,7 +30,7 @@ add_library(${PROJECT_NAME} SHARED
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
   include
-  arduino/esp32_controller/include/protocol
+  arduino/esp32_controller/lib/bumperbot_protocol/include
   "${SERIAL_INCLUDE_DIRS}"
 )
 target_link_libraries(${PROJECT_NAME} LibSerial::LibSerial)

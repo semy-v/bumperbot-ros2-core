@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 
-#include "message_deserialize.hpp"
-#include "message_serialize.hpp"
-#include "system_messages.hpp"
+#include "protocol/message_deserialize.hpp"
+#include "protocol/message_serialize.hpp"
+#include "protocol/system_messages.hpp"
 
 namespace bumperbot_firmware {
 

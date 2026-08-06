@@ -14,8 +14,8 @@
 
 #include "serial_message_protocol.hpp"
 #include "serial_message_transceiver.hpp"
-#include "system_data.hpp"
-#include "system_messages.hpp"
+#include "protocol/system_data.hpp"
+#include "protocol/system_messages.hpp"
 
 #include "bumperbot_firmware/diff_drive_handler.hpp"
 #include "bumperbot_firmware/imu_sensor_handler.hpp"
