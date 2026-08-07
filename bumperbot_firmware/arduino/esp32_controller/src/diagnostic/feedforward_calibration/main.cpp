@@ -7,6 +7,8 @@
 
 namespace {
 
+constexpr uint32_t kSerialBaudRate{115200U};
+
 // -----------------------------------------------------------------------------
 // Calibration update rate
 // -----------------------------------------------------------------------------
@@ -358,7 +360,7 @@ void updateCalibration() {
 }  // namespace
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(kSerialBaudRate);
 
     // Wait briefly for a development terminal, but continue booting when the
     // robot operates without a connected host.
