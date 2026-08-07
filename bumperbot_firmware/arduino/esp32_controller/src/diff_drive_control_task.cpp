@@ -20,12 +20,14 @@ TickType_t last_valid_msg_time_ticks;
 
 // Wheels configure, activate, deactivete callbacks
 void activateWheels() {
+    // Activate both motor controllers
     p_right_wheel->setActive(true);
     p_left_wheel->setActive(true);
     last_valid_msg_time_ticks = xTaskGetTickCount();
 };
 
 void deactivateWheels() {
+    // Deactivate both motor controllers
     p_right_wheel->setActive(false);
     p_left_wheel->setActive(false);
 };
@@ -69,7 +71,11 @@ void diffDriveControlTask(void* pvParameters) {
         }
     }
 
-    // Configure PINs
+    // Enable power for both motors
+    pinMode(kMotorsPowerEnablePin, OUTPUT);
+    digitalWrite(kMotorsPowerEnablePin, HIGH);
+
+    // Configure wheel controllers PINs
     right_wheel.begin();
     left_wheel.begin();
 

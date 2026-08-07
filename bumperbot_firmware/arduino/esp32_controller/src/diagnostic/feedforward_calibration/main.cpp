@@ -375,6 +375,10 @@ void setup() {
     Serial.println();
     Serial.println("Initializing feed-forward calibration hardware...");
 
+    // Enable power for both motors before starting the rotation sequence.
+    pinMode(kMotorsPowerEnablePin, OUTPUT);
+    digitalWrite(kMotorsPowerEnablePin, HIGH);
+
     left_calibration_runner.begin();
     right_calibration_runner.begin();
 

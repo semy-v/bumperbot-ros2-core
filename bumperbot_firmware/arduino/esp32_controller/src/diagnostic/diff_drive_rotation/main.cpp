@@ -99,6 +99,10 @@ void setup() {
     const TaskHandle_t diagnostic_task = xTaskGetCurrentTaskHandle();
     configASSERT(diagnostic_task != nullptr);
 
+    // Enable power for both motors before starting the rotation sequence.
+    pinMode(kMotorsPowerEnablePin, OUTPUT);
+    digitalWrite(kMotorsPowerEnablePin, HIGH);
+
     // Initialize both runners before either motor starts. begin() stores the
     // task handle before enabling each PCNT ISR.
     left_runner.begin(diagnostic_task);
