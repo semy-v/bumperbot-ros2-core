@@ -1,80 +1,145 @@
-
 #include <Arduino.h>
 #include <Wire.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
+#include <algorithm>
+#include <optional>
+
 #include "imu/mpu6050_driver.hpp"
 #include "protocol/system_data.hpp"
-#include "serial_message_processor.hpp"
 #include "task_shared_data.hpp"
 #include "wire_i2c_bus.hpp"
 
-void task_delay_func(unsigned long ms) {
+namespace {
+
+constexpr uint8_t kImuInterruptPin{A6};
+constexpr uint32_t kI2cClockHz{400'000U};
+constexpr uint16_t kCalibrationSampleIntervalMs{10U};
+
+TaskHandle_t g_sensor_read_task_handle{nullptr};
+
+void taskDelay(unsigned long ms) {
     vTaskDelay(pdMS_TO_TICKS(ms));
 }
 
-void sensorReadTask(void* pvParameters) {
-    Wire.begin();
+void IRAM_ATTR handleImuDataReady() noexcept {
+    BaseType_t higher_priority_task_woken = pdFALSE;
 
-    auto p_task_data = static_cast<TaskSharedData*>(pvParameters);
-    MPU6050<WireI2cBus> imu_sensor{WireI2cBus{Wire}, task_delay_func};
-    uint32_t notify_value{};
+    vTaskNotifyGiveFromISR(g_sensor_read_task_handle, &higher_priority_task_woken);
 
-    for (;;) {
-        if (xTaskNotifyWait(0, ULONG_MAX, &notify_value, portMAX_DELAY) == pdTRUE) {
-            const SensorTaskEvent event = std::bit_cast<SensorTaskEvent>(notify_value);
+    if (higher_priority_task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
 
-            switch (event.id) {
-                case SensorTaskEventId::ImuConfig: {
-                    ImuConfigData imu_config_data{
-                        .calibrate_period_ms = static_cast<uint16_t>(event.payload),
-                        .result = false};
-                    if (imu_sensor.connect()) {
-                        constexpr uint16_t kSampleIntervalMs{10};
-                        const uint16_t sample_count{static_cast<uint16_t>(
-                            imu_config_data.calibrate_period_ms / kSampleIntervalMs)};
-                        imu_config_data.result =
-                            imu_sensor.calibrate(sample_count, kSampleIntervalMs).has_value();
-                    }
-                    sendSerialMessage(imu_config_data);
-                } break;
-                case SensorTaskEventId::SensorRead: {
-                    // Delay the task for the specified number of milliseconds
-                    // in order to send the latest sensor data
-                    const uint8_t response_delay_ms = static_cast<uint8_t>(event.payload);
-                    vTaskDelay(pdMS_TO_TICKS(response_delay_ms));
+ImuStateData toSystemImuState(const mpu6050::IMUData& imu) {
+    return ImuStateData{
+        .angular_velocity_x = imu.gyroX,
+        .angular_velocity_y = imu.gyroY,
+        .angular_velocity_z = imu.gyroZ,
+        .linear_acceleration_x = imu.accelX,
+        .linear_acceleration_y = imu.accelY,
+        .linear_acceleration_z = imu.accelZ,
+    };
+}
 
-                    SystemStateData state{
-                        .status = SystemStateFlags::None,
-                        .imu = {},        // zero out the IMU sensor values
-                        .diff_drive = {}  // zero out diff drive values
-                    };
+void publishImuState(TaskSharedData& shared_data,
+                     const std::optional<mpu6050::IMUData>& imu_data) {
+    ImuTaskState state{
+        .data = {},
+        .sample_time_ticks = xTaskGetTickCount(),
+        .valid = imu_data.has_value(),
+    };
 
-                    // Read current IMU sensor data
-                    if (auto opt_imu_data = imu_sensor.readCalibrated(); opt_imu_data.has_value()) {
-                        const auto& imu_data = opt_imu_data.value();
-                        state.imu.angular_velocity_x = imu_data.gyroX;
-                        state.imu.angular_velocity_y = imu_data.gyroY;
-                        state.imu.angular_velocity_z = imu_data.gyroZ;
-                        state.imu.linear_acceleration_x = imu_data.accelX;
-                        state.imu.linear_acceleration_y = imu_data.accelY;
-                        state.imu.linear_acceleration_z = imu_data.accelZ;
-                    } else {
-                        state.status = SystemStateFlags::ImuUnavailable;
-                    }
+    if (imu_data) {
+        state.data = toSystemImuState(*imu_data);
+    }
 
-                    // Read latest differential drive sensor data
-                    xQueuePeek(p_task_data->diff_drive_state_queue, &state.diff_drive.velocity, 0);
+    xQueueOverwrite(shared_data.imu_state_queue, &state);
+}
 
-                    // Send system state message in response
-                    sendSerialMessage(state);
-                } break;
-                default:
-                    // Handle unknown event
-                    break;
+template <typename Imu>
+void configureImu(Imu& imu_sensor,
+                  TaskSharedData& shared_data,
+                  const ImuConfigData& request,
+                  bool& interrupt_attached,
+                  bool& imu_ready) {
+    imu_ready = false;
+    xQueueReset(shared_data.imu_state_queue);
+
+    // Reconfiguration must not race DATA_RDY reads with calibration reads.
+    if (imu_sensor.isConnected()) {
+        (void)imu_sensor.disableInterrupts();
+    }
+
+    ImuConfigData response{
+        .calibrate_period_ms = request.calibrate_period_ms,
+        .result = false,
+    };
+
+    if (request.calibrate_period_ms >= kCalibrationSampleIntervalMs && imu_sensor.connect()) {
+        const uint16_t sample_count = static_cast<uint16_t>(
+            request.calibrate_period_ms / kCalibrationSampleIntervalMs);
+
+        if (imu_sensor.calibrate(sample_count, kCalibrationSampleIntervalMs).has_value()) {
+            if (!interrupt_attached) {
+                pinMode(kImuInterruptPin, INPUT);
+                attachInterrupt(digitalPinToInterrupt(kImuInterruptPin), handleImuDataReady, RISING);
+                interrupt_attached = true;
+            }
+
+            response.result = imu_sensor.enableDataReadyInterrupt();
+            imu_ready = response.result;
+
+            if (!imu_ready) {
+                (void)imu_sensor.disableInterrupts();
             }
         }
+    }
+
+    // SensorReadTask never writes Serial. SerialProcessTask is the sole TX owner.
+    xQueueOverwrite(shared_data.imu_config_response_queue, &response);
+}
+
+}  // namespace
+
+void sensorReadTask(void* pvParameters) {
+    auto& shared_data = *static_cast<TaskSharedData*>(pvParameters);
+
+    g_sensor_read_task_handle = xTaskGetCurrentTaskHandle();
+    configASSERT(g_sensor_read_task_handle != nullptr);
+
+    Wire.begin();
+    Wire.setClock(kI2cClockHz);
+
+    MPU6050<WireI2cBus> imu_sensor{WireI2cBus{Wire}, taskDelay};
+
+    bool interrupt_attached{false};
+    bool imu_ready{false};
+
+    for (;;) {
+        // Both ImuConfig and DATA_RDY use this counting notification only as a
+        // wake-up primitive. ImuConfig payload itself lives in a queue.
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Configuration always takes precedence. If a DATA_RDY event arrived
+        // concurrently, it can be discarded because calibration invalidates
+        // all pre-configuration samples anyway.
+        ImuConfigData config{};
+        if (xQueueReceive(shared_data.imu_config_queue, &config, 0) == pdPASS) {
+            configureImu(imu_sensor, shared_data, config, interrupt_attached, imu_ready);
+            continue;
+        }
+
+        if (!imu_ready) {
+            continue;
+        }
+
+        // If multiple DATA_RDY notifications accumulated while this task was
+        // delayed, read once. MPU6050 data registers contain the latest sample;
+        // repeated reads would only duplicate data rather than recover history.
+        publishImuState(shared_data, imu_sensor.readCalibrated());
     }
 }

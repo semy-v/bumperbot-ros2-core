@@ -5,32 +5,44 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
-#include <bit>
 #include <cstdint>
 
-// task function prototypes
+#include "protocol/system_data.hpp"
+
+// Task function prototypes.
 void diffDriveControlTask(void* pvParameters);
 void serialProcessTask(void* pvParameters);
 void sensorReadTask(void* pvParameters);
 
-// diff drive control task event notifications
-constexpr uint8_t kDeactivateNotifyIndex{0u};
+// Diff-drive control task event notifications.
+constexpr uint8_t kDeactivateNotifyIndex{0U};
 
-// sensor read task event notifications
-enum class SensorTaskEventId : uint32_t { SensorRead = 0u, ImuConfig = 1u };
-
-struct SensorTaskEvent {
-    SensorTaskEventId id : 2;  // 2 bits for event ID
-    uint32_t payload : 30;     // 30 bits for payload
+// Latest IMU sample shared from SensorReadTask to SerialProcessTask.
+// Queue length is one and SensorReadTask overwrites it on each DATA_RDY event.
+struct ImuTaskState {
+    ImuStateData data{};
+    TickType_t sample_time_ticks{0};
+    bool valid{false};
 };
 
-static_assert(sizeof(SensorTaskEvent) == sizeof(uint32_t), "SensorTaskEvent size mismatch!");
+// A DiffDriveCommand reserves exactly one SystemStateData response.
+// Keeping this in a one-element queue makes "one outstanding command" an
+// explicit protocol invariant without introducing shared atomics.
+struct SystemStateResponseRequest {
+    int64_t due_time_us{0};
+};
 
-// shared data structure for inter-task usage
 struct TaskSharedData {
     QueueHandle_t diff_drive_config_queue;
     QueueHandle_t diff_drive_command_queue;
     QueueHandle_t diff_drive_state_queue;
+
+    QueueHandle_t imu_config_queue;
+    QueueHandle_t imu_config_response_queue;
+    QueueHandle_t imu_state_queue;
+
+    QueueHandle_t system_state_response_queue;
+
     TaskHandle_t diff_drive_control_task_handle;
     TaskHandle_t sensor_read_task_handle;
 };
