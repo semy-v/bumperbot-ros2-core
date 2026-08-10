@@ -82,7 +82,7 @@ class BL2418Encoder {
 
     BL2418Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic);
 
-    ~BL2418Encoder() = default;
+    ~BL2418Encoder();
 
     BL2418Encoder(const BL2418Encoder&) = delete;
     BL2418Encoder(BL2418Encoder&&) = delete;

@@ -50,6 +50,28 @@ BL2418Encoder::BL2418Encoder(uint8_t direction_pin,
 BL2418Encoder::BL2418Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic)
     : BL2418Encoder(direction_pin, speed_state_pin, 1, -1, invert_logic) {}
 
+BL2418Encoder::~BL2418Encoder() {
+    // Prevent any new PCNT interrupt from being dispatched while the object
+    // is being destroyed.
+    std::ignore = pcnt_intr_disable(pcnt_unit_);
+
+    // Stop the hardware counter so it no longer processes FG transitions.
+    std::ignore = pcnt_counter_pause(pcnt_unit_);
+
+    // Disable the events that were enabled in begin().
+    std::ignore = pcnt_event_disable(pcnt_unit_, PCNT_EVT_L_LIM);
+    std::ignore = pcnt_event_disable(pcnt_unit_, PCNT_EVT_H_LIM);
+
+    // Remove only this encoder's ISR handler.
+    std::ignore = pcnt_isr_handler_remove(pcnt_unit_);
+
+    // Undo the filter configured by the constructor.
+    std::ignore = pcnt_filter_disable(pcnt_unit_);
+
+    // Disconnect this PCNT channel from the GPIO matrix.
+    std::ignore = pcnt_set_pin(pcnt_unit_, PCNT_CHANNEL_0, PCNT_PIN_NOT_USED, PCNT_PIN_NOT_USED);
+}
+
 void BL2418Encoder::begin(PulseEdgeCallback callback, void* context) {
     // Configure the FG signal as a digital input before enabling the PCNT
     // peripheral.
@@ -83,7 +105,6 @@ void BL2418Encoder::reset() {
 EncoderEdgeData BL2418Encoder::getEdgeData() const {
     uint32_t last_edge;
     MotionState state;
-    uint32_t seq;
 
     for (;;) {
         const uint32_t seq_before = seq_lock_.load(std::memory_order_acquire);
