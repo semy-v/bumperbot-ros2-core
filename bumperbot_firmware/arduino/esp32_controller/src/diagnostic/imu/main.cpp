@@ -24,8 +24,7 @@ constexpr uint32_t kInterruptTimeoutMs{100U};
 constexpr uint32_t kPrintEverySamples{10U};
 
 MPU6050<WireI2cBus> imu_sensor{
-    WireI2cBus{Wire},
-    [](unsigned long ms) { delay(ms); },
+    WireI2cBus{Wire}
 };
 
 TaskHandle_t imu_data_task{nullptr};
@@ -87,7 +86,7 @@ void setup() {
     Serial.println("MPU6050 initialized.");
     Serial.println("Starting calibration (keep sensor stationary and flat)...");
 
-    const auto calibration = imu_sensor.calibrate();
+    const auto calibration = imu_sensor.calibrate([](unsigned long ms) { delay(ms); });
     if (!calibration) {
         haltWithError("Failed to calibrate MPU6050.");
     }

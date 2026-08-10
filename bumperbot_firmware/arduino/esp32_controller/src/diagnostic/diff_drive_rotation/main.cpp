@@ -36,9 +36,9 @@ BL2418Motor left_motor{kLeftMotorDirectionPin, kLeftMotorSpeedCommandPin, false}
 BL2418Motor right_motor{kRightMotorDirectionPin, kRightMotorSpeedCommandPin, true};
 
 constexpr std::array kWheelRotationSequence{
-    WheelRotationStep{50, 3},   WheelRotationStep{100, 4}, WheelRotationStep{255, 5},
+    WheelRotationStep{50, 3},   WheelRotationStep{100, 4}, WheelRotationStep{255, 15},
     WheelRotationStep{50, 3},   WheelRotationStep{-50, 3}, WheelRotationStep{-100, 4},
-    WheelRotationStep{-255, 5}, WheelRotationStep{-50, 3}, WheelRotationStep{50, 3}};
+    WheelRotationStep{-255, 15}, WheelRotationStep{-50, 3}, WheelRotationStep{50, 3}};
 
 using RotationRunner = WheelRotationSequenceRunner<kWheelRotationSequence.size()>;
 

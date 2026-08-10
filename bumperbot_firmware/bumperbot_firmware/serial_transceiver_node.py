@@ -28,15 +28,21 @@ class SerialTransceiverNode(LifecycleNode):
         self.declare_parameter("imu_calibration_ms", 2000)
 
         # Config params matching C++ DiffDriveConfigData
-        self.declare_parameter("pid_rate", 50.0)
-        self.declare_parameter("r_wheel_kp", 15.5)
-        self.declare_parameter("r_wheel_ki", 39.0)
-        self.declare_parameter("r_wheel_kd", 0.0)
-        self.declare_parameter("r_wheel_deadband", 17)
-        self.declare_parameter("l_wheel_kp", 14.0)
-        self.declare_parameter("l_wheel_ki", 43.0)
-        self.declare_parameter("l_wheel_kd", 0.0)
-        self.declare_parameter("l_wheel_deadband", 18)
+        self.declare_parameter("control_rate_hz", 100)
+
+        self.declare_parameter("right_wheel.feedforward_ks", 13.25)
+        self.declare_parameter("right_wheel.feedforward_kv", 11.29)
+        self.declare_parameter("right_wheel.feedback_kp", 0.0)
+        self.declare_parameter("right_wheel.feedback_ki", 0.0)
+        self.declare_parameter("right_wheel.feedback_kd", 0.0)
+        self.declare_parameter("right_wheel.max_feedback_pwm", 100)
+
+        self.declare_parameter("left_wheel.feedforward_ks", 13.23)
+        self.declare_parameter("left_wheel.feedforward_kv", 10.93)
+        self.declare_parameter("left_wheel.feedback_kp", 0.0)
+        self.declare_parameter("left_wheel.feedback_ki", 0.0)
+        self.declare_parameter("left_wheel.feedback_kd", 0.0)
+        self.declare_parameter("left_wheel.max_feedback_pwm", 100)
 
         self.port_ = self.get_parameter("port").value
         self.baudrate_ = self.get_parameter("baudrate").value
@@ -100,17 +106,18 @@ class SerialTransceiverNode(LifecycleNode):
 
                 time.sleep(0.01)
 
+            if not self.imu_manager_.is_configured:
+                self.get_logger().warn("Timeout: IMU calibration/configuration failed.")
+
             # Detail which subsystem failed if timeout occurs
             if not self.diff_drive_manager_.is_configured:
                 self.get_logger().error(
                     "Timeout: DiffDrive hardware configuration failed."
                 )
-            if not self.imu_manager_.is_configured:
-                self.get_logger().error(
-                    "Timeout: IMU calibration/configuration failed."
-                )
+                # return failure only if diff drive not configured
+                return TransitionCallbackReturn.FAILURE
 
-            return TransitionCallbackReturn.FAILURE
+            return TransitionCallbackReturn.SUCCESS
 
         except Exception as e:
             self.get_logger().error(f"Failed to configure hardware interface: {e}")

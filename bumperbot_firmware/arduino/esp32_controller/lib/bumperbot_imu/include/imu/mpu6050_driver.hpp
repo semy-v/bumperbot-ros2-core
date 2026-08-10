@@ -15,9 +15,8 @@ template <I2CBusConcept I2CBus>
 class MPU6050 {
  public:
     explicit MPU6050(I2CBus bus,
-                     mpu6050_delay_function delay_func,
                      uint8_t device_address = mpu6050::kDeviceAddress)
-        : bus_(std::move(bus)), address_(device_address), delay_func_(delay_func) {}
+        : bus_(std::move(bus)), address_(device_address) {}
 
     [[nodiscard]] bool isConnected() const { return connected_; }
 
@@ -59,7 +58,7 @@ class MPU6050 {
         return isConnected() && writeRegister(mpu6050::kIntEnableReg, mpu6050::kInterruptsDisabled);
     }
 
-    std::optional<mpu6050::IMUCalibration> calibrate(uint16_t sample_num = 200,
+    std::optional<mpu6050::IMUCalibration> calibrate(mpu6050_delay_function delay_func, uint16_t sample_num = 200,
                                                      uint16_t sample_interval_ms = 10) {
         if (sample_num == 0U) {
             return std::nullopt;
@@ -86,7 +85,7 @@ class MPU6050 {
             sum_gy += data.gyroY;
             sum_gz += data.gyroZ;
 
-            delay_func_(sample_interval_ms);
+            delay_func(sample_interval_ms);
         }
 
         const float sample_count = static_cast<float>(sample_num);
@@ -143,7 +142,6 @@ class MPU6050 {
  private:
     I2CBus bus_;
     uint8_t address_;
-    mpu6050_delay_function delay_func_;
     mpu6050::IMUCalibration calibration_{};
     bool connected_{false};
 

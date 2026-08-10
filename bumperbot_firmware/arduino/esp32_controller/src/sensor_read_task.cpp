@@ -20,10 +20,6 @@ constexpr uint16_t kCalibrationSampleIntervalMs{10U};
 
 TaskHandle_t g_sensor_read_task_handle{nullptr};
 
-void taskDelay(unsigned long ms) {
-    vTaskDelay(pdMS_TO_TICKS(ms));
-}
-
 void IRAM_ATTR handleImuDataReady() noexcept {
     BaseType_t higher_priority_task_woken = pdFALSE;
 
@@ -45,8 +41,7 @@ ImuStateData toSystemImuState(const mpu6050::IMUData& imu) {
     };
 }
 
-void publishImuState(TaskSharedData& shared_data,
-                     const std::optional<mpu6050::IMUData>& imu_data) {
+void publishImuState(TaskSharedData& shared_data, const std::optional<mpu6050::IMUData>& imu_data) {
     ImuTaskState state{
         .data = {},
         .sample_time_ticks = xTaskGetTickCount(),
@@ -80,13 +75,15 @@ void configureImu(Imu& imu_sensor,
     };
 
     if (request.calibrate_period_ms >= kCalibrationSampleIntervalMs && imu_sensor.connect()) {
-        const uint16_t sample_count = static_cast<uint16_t>(
-            request.calibrate_period_ms / kCalibrationSampleIntervalMs);
-
-        if (imu_sensor.calibrate(sample_count, kCalibrationSampleIntervalMs).has_value()) {
+        const uint16_t sample_count =
+            static_cast<uint16_t>(request.calibrate_period_ms / kCalibrationSampleIntervalMs);
+        auto fn_delay = [](unsigned long ms) { vTaskDelay(pdMS_TO_TICKS(ms)); };
+        if (imu_sensor.calibrate(fn_delay, sample_count, kCalibrationSampleIntervalMs)
+                .has_value()) {
             if (!interrupt_attached) {
                 pinMode(kImuInterruptPin, INPUT);
-                attachInterrupt(digitalPinToInterrupt(kImuInterruptPin), handleImuDataReady, RISING);
+                attachInterrupt(digitalPinToInterrupt(kImuInterruptPin), handleImuDataReady,
+                                RISING);
                 interrupt_attached = true;
             }
 
@@ -114,7 +111,7 @@ void sensorReadTask(void* pvParameters) {
     Wire.begin();
     Wire.setClock(kI2cClockHz);
 
-    MPU6050<WireI2cBus> imu_sensor{WireI2cBus{Wire}, taskDelay};
+    MPU6050<WireI2cBus> imu_sensor{WireI2cBus{Wire}};
 
     bool interrupt_attached{false};
     bool imu_ready{false};
