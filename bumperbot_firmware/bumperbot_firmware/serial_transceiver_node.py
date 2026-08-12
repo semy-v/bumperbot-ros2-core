@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 
+import os
 import threading
 import serial
 import time
@@ -132,8 +133,17 @@ class SerialTransceiverNode(LifecycleNode):
 
         self.stop_read_thread_.clear()
         self.rx_buffer_.clear()
-        self.read_thread_ = threading.Thread(target=self.receive_msg_loop, daemon=True)
+        self.read_thread_ = threading.Thread(
+            target=self.receive_msg_loop, name="serial_tx", daemon=True
+        )
         self.read_thread_.start()
+
+        try:
+            self.set_read_thread_realtime_priority()
+        except (OSError, ValueError, RuntimeError) as e:
+            self.get_logger().warn(
+                f"Failed to configure serial read thread for SCHED_FIFO: {e}"
+            )
 
         self.get_logger().info("Transceiver node activated successfully.")
         return super().on_activate(state)
@@ -158,6 +168,41 @@ class SerialTransceiverNode(LifecycleNode):
             self.transceiver_.close()
         return TransitionCallbackReturn.SUCCESS
 
+    def set_read_thread_realtime_priority(self):
+        """Configure only the serial receive thread as Linux SCHED_FIFO."""
+        if self.read_thread_ is None or self.read_thread_.native_id is None:
+            raise RuntimeError("Serial read thread has no native Linux thread ID")
+
+        priority = 50
+        min_priority = os.sched_get_priority_min(os.SCHED_FIFO)
+        max_priority = os.sched_get_priority_max(os.SCHED_FIFO)
+        if not min_priority <= priority <= max_priority:
+            raise ValueError(
+                f"read_thread_priority={priority} is outside the SCHED_FIFO "
+                f"range [{min_priority}, {max_priority}]"
+            )
+
+        thread_id = self.read_thread_.native_id
+
+        os.sched_setscheduler(
+            thread_id,
+            os.SCHED_FIFO,
+            os.sched_param(priority),
+        )
+
+        actual_policy = os.sched_getscheduler(thread_id)
+        actual_priority = os.sched_getparam(thread_id).sched_priority
+
+        if actual_policy != os.SCHED_FIFO or actual_priority != priority:
+            raise RuntimeError(
+                "Serial read thread real-time scheduling verification failed"
+            )
+
+        self.get_logger().info(
+            f"Serial read thread configured: SCHED_FIFO priority {actual_priority}, "
+            f"TID {thread_id}"
+        )
+
     def parse_incoming_msg(self):
         if self.transceiver_ and self.transceiver_.in_waiting:
             self.rx_buffer_.extend(
@@ -170,6 +215,10 @@ class SerialTransceiverNode(LifecycleNode):
         while not self.stop_read_thread_.is_set():
             try:
                 parsed_msg = self.parse_incoming_msg()
+
+                if parsed_msg is None:
+                    time.sleep(0.001)
+                    continue
 
                 # Dispatch incoming composite state frame to respective managers
                 if isinstance(parsed_msg, SystemStateMsg):
