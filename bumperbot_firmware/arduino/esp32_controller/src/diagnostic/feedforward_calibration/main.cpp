@@ -4,270 +4,335 @@
 #include "diff_drive/bl2418_motor.hpp"
 #include "diff_drive/diff_drive_constants.hpp"
 #include "feedforward_calibration_runner.hpp"
+#include "wireless_console.hpp"
 
 namespace {
 
 constexpr uint32_t kSerialBaudRate{115200U};
-
-// -----------------------------------------------------------------------------
-// Calibration update rate
-// -----------------------------------------------------------------------------
-
 constexpr uint32_t kCalibrationUpdateRateHz{100};
-constexpr uint32_t kCalibrationUpdatePeriodMs{
-    1000U / kCalibrationUpdateRateHz
-};
+constexpr uint32_t kCalibrationUpdatePeriodMs{1000U / kCalibrationUpdateRateHz};
 
-static_assert(
-    1000U % kCalibrationUpdateRateHz == 0U,
-    "Calibration update rate must produce an integral millisecond period.");
+static_assert(1000U % kCalibrationUpdateRateHz == 0U,
+              "Calibration update rate must produce an integral millisecond period.");
+
+constexpr uint32_t kMotorPowerOffResetMs{300};
+constexpr uint32_t kMotorPowerOnSettleMs{150};
 
 // -----------------------------------------------------------------------------
-// Calibration configuration
+// Directional moving-state feed-forward calibration
 // -----------------------------------------------------------------------------
 
 constexpr FeedForwardCalibrationRunner::Config kCalibrationConfig{
-    // PWM sweep.
-    .pwm_start = 30,
-    .pwm_end = 250,
-    .pwm_step = 20,
+    // Dense low-PWM coverage is deliberate: the target minimum operating
+    // velocity is about 2 rad/s.  50..200 by 10 produces exactly 16 magnitudes
+    // and 32 signed samples, matching FeedForwardCalibrationRunner::kMaxSamples.
+    .velocity_pwm_start = 50,
+    .velocity_pwm_end = 200,
+    .velocity_pwm_step = 10,
 
-    // Directions.
     .calibrate_forward = true,
     .calibrate_reverse = true,
 
-    // State timing.
-    .settle_time_ms = 400,
-    .steady_time_ms = 300,
-    .max_steady_wait_ms = 4000,
+    // Calibration-only preconditioning.  It helps both BL2418 and BL2430
+    // reach a moving state before a low test PWM is applied.  It is not part of
+    // the reported feed-forward model and is not used by production control.
+    .precondition_pwm = 130,
+    .precondition_time_ms = 400,
+
+    .settle_time_ms = 500,
+    .steady_time_ms = 400,
+    .max_steady_wait_ms = 5000,
     .brake_time_ms = 250,
     .stop_time_ms = 500,
 
-    // Steady-state detector.
-    .velocity_stddev_limit = 0.40F,
-    .velocity_mean_deviation_limit = 0.15F,
+    .velocity_stddev_limit = 0.45F,
+    .velocity_mean_deviation_limit = 0.20F,
 
-    // Sample capture.
     .capture_time_ms = 2000,
     .capture_sample_count = 50,
-    .max_capture_wait_ms = 2000,
+    .max_capture_wait_ms = 2500,
 
-    // Regression.
     .minimum_regression_velocity = 1.0F,
-    .static_friction_pwm = 25.0F,
-    .use_fixed_static_friction = false
+    .max_regression_stddev = 0.8F,
+    .minimum_regression_points_per_direction = 5,
+};
+
+#if __has_include("wifi_credentials.hpp")
+#include "wifi_credentials.hpp"
+constexpr const char* configured_ssid = wifi_credentials::kSsid;
+constexpr const char* configured_password = wifi_credentials::kPassword;
+#else
+#pragma message("wifi_credentials.hpp not found. Using empty/fallback credentials.")
+constexpr const char* configured_ssid = "";
+constexpr const char* configured_password = "";
+#endif
+
+WirelessConsole console{WirelessConsole::Config{
+    .ssid = configured_ssid,
+    .password = configured_password,
+    .port = 23,
+    .log_buffer_size = 8192,
+    .task_priority = 1,
+    .cpu_core = 0,
+}};
+
+// -----------------------------------------------------------------------------
+// Shared motor-supply power cycler
+// -----------------------------------------------------------------------------
+
+class MotorPowerCycler {
+ public:
+    void begin() {
+        pinMode(kMotorsPowerEnablePin, OUTPUT);
+        digitalWrite(kMotorsPowerEnablePin, HIGH);
+        state_ = State::Idle;
+        completion_pending_ = false;
+    }
+
+    [[nodiscard]] bool canRequest() const { return state_ == State::Idle && !completion_pending_; }
+
+    void request() {
+        if (!canRequest()) {
+            return;
+        }
+
+        digitalWrite(kMotorsPowerEnablePin, LOW);
+        state_ = State::PowerOffWait;
+        state_start_ms_ = millis();
+        console.println("[FF:POWER] motor supply OFF for driver reset");
+    }
+
+    void update() {
+        const uint32_t now_ms = millis();
+
+        switch (state_) {
+            case State::Idle:
+                break;
+
+            case State::PowerOffWait:
+                if (now_ms - state_start_ms_ >= kMotorPowerOffResetMs) {
+                    digitalWrite(kMotorsPowerEnablePin, HIGH);
+                    state_ = State::PowerOnWait;
+                    state_start_ms_ = now_ms;
+                    console.println("[FF:POWER] motor supply ON; waiting for driver settle");
+                }
+                break;
+
+            case State::PowerOnWait:
+                if (now_ms - state_start_ms_ >= kMotorPowerOnSettleMs) {
+                    state_ = State::Idle;
+                    completion_pending_ = true;
+                    console.println("[FF:POWER] motor power cycle complete");
+                }
+                break;
+        }
+    }
+
+    [[nodiscard]] bool consumeCompletion() {
+        if (!completion_pending_) {
+            return false;
+        }
+
+        completion_pending_ = false;
+        return true;
+    }
+
+    void cancelAndEnable() {
+        digitalWrite(kMotorsPowerEnablePin, HIGH);
+        state_ = State::Idle;
+        completion_pending_ = false;
+    }
+
+ private:
+    enum class State : uint8_t {
+        Idle,
+        PowerOffWait,
+        PowerOnWait,
+    };
+
+    State state_{State::Idle};
+    uint32_t state_start_ms_{0};
+    bool completion_pending_{false};
 };
 
 // -----------------------------------------------------------------------------
 // Wheel hardware
 // -----------------------------------------------------------------------------
 
-/*
- * Only one encoder instance per wheel is needed by the calibration runner.
- *
- * Each encoder uses PCNT high/low limits of +1/-1 internally so every FG edge
- * updates the reciprocal-period velocity measurement.
- */
 BL2418Encoder left_encoder{
     kLeftMotorDirectionPin,
     kLeftMotorSpeedStatePin,
-    false  // Left wheel logic is not inverted.
+    false,
 };
 
 BL2418Encoder right_encoder{
     kRightMotorDirectionPin,
     kRightMotorSpeedStatePin,
-    true  // Right wheel is mounted as a mirror image.
+    true,
 };
 
 BL2418Motor left_motor{
     kLeftMotorDirectionPin,
     kLeftMotorSpeedCommandPin,
-    false
+    false,
 };
 
 BL2418Motor right_motor{
     kRightMotorDirectionPin,
     kRightMotorSpeedCommandPin,
-    true
+    true,
 };
 
-// -----------------------------------------------------------------------------
-// Independent wheel calibration runners
-// -----------------------------------------------------------------------------
+MotorPowerCycler motor_power_cycler;
 
-FeedForwardCalibrationRunner left_calibration_runner{
+FeedForwardCalibrationRunner left_runner{
     "LEFT",
     left_motor,
     left_encoder,
     kCalibrationUpdatePeriodMs,
     static_cast<float>(kLeftMotorPulsePerRevolution),
-    kCalibrationConfig
+    console,
+    kCalibrationConfig,
 };
 
-FeedForwardCalibrationRunner right_calibration_runner{
+FeedForwardCalibrationRunner right_runner{
     "RIGHT",
     right_motor,
     right_encoder,
     kCalibrationUpdatePeriodMs,
     static_cast<float>(kRightMotorPulsePerRevolution),
-    kCalibrationConfig
+    console,
+    kCalibrationConfig,
 };
 
 // -----------------------------------------------------------------------------
-// Test state
+// Application state
 // -----------------------------------------------------------------------------
 
-bool calibration_started{false};
-bool results_printed{false};
+enum class CalibrationStage : uint8_t {
+    Idle,
+    InitialMotorReset,
+    Running,
+};
 
+CalibrationStage calibration_stage{CalibrationStage::Idle};
+bool calibration_started{false};
 uint32_t last_update_ms{0};
 
-// -----------------------------------------------------------------------------
-// Serial helpers
-// -----------------------------------------------------------------------------
-
 void printTestInstructions() {
-    Serial.println();
-    Serial.println("========================================================");
-    Serial.println("Differential-drive feed-forward calibration");
-    Serial.println("========================================================");
-    Serial.println("The robot will move under open-loop PWM control.");
-    Serial.println("Both wheels are calibrated simultaneously.");
-    Serial.println();
-    Serial.println("Before starting:");
-    Serial.println("  1. Place the assembled robot on its normal floor.");
-    Serial.println("  2. Make sure the travel path is clear.");
-    Serial.println("  3. Be ready to disconnect motor power.");
-    Serial.println();
-    Serial.println("Serial commands:");
-    Serial.println("  s - start calibration");
-    Serial.println("  x - stop calibration immediately");
-    Serial.println("========================================================");
+    console.println();
+    console.println("========================================================");
+    console.println("Differential-drive directional feed-forward calibration");
+    console.println("========================================================");
+    console.println("Production model per wheel:");
+    console.println("  forward: +[Ks_forward + Kv*|v|]");
+    console.println("  reverse: -[Ks_reverse + Kv*|v|]");
+    console.println("  No startup/breakaway PWM is produced or required.");
+    console.println();
+    console.println("Calibration behavior:");
+    console.println("  - both wheels are sampled simultaneously");
+    console.println("  - +PWM then -PWM at every magnitude");
+    console.println("  - a calibration-only preconditioning PWM is applied first");
+    console.println("  - the command then drops to the actual low test PWM");
+    console.println("  - points that cannot sustain >= minimum velocity are rejected");
+    console.println("  - motor power is cycled between every signed sample");
+    console.println();
+    console.println("Before starting:");
+    console.println("  1. Put the assembled robot on its normal floor.");
+    console.println("  2. Keep a clear travel area in both directions.");
+    console.println("  3. Verify encoder pulses/revolution for the installed motor/gearbox.");
+    console.println();
+    console.println("Commands:");
+    console.println("  s - start calibration");
+    console.println("  x - stop immediately");
+    console.println("  h - print this help");
+    console.println("========================================================");
 }
 
-void printWheelResult(
-    const char* wheel_name,
-    const std::optional<FeedForwardCalibrationRunner::CalibrationResult>& result) {
-    Serial.println();
-    Serial.printf("%s wheel result:\n", wheel_name);
+void abortCalibration(const char* reason) {
+    left_runner.stop();
+    right_runner.stop();
+    left_motor.setPwmSpeed(0);
+    right_motor.setPwmSpeed(0);
+    motor_power_cycler.cancelAndEnable();
 
-    if (!result) {
-        Serial.println("  Calibration failed or produced insufficient samples.");
-        return;
-    }
+    calibration_started = false;
+    calibration_stage = CalibrationStage::Idle;
 
-    Serial.printf(
-        "  Ks             : %.4f PWM\n",
-        result->ks);
-
-    Serial.printf(
-        "  Kv             : %.4f PWM/(rad/s)\n",
-        result->kv);
-
-    Serial.printf(
-        "  R^2            : %.5f\n",
-        result->r_squared);
-
-    Serial.printf(
-        "  RMSE           : %.4f PWM\n",
-        result->rmse_pwm);
-
-    Serial.printf(
-        "  Samples used   : %u\n",
-        static_cast<unsigned>(result->sample_count));
-
-    Serial.println();
-    Serial.println("  Feed-forward equation:");
-
-    Serial.printf(
-        "    pwm_ff = %.4f * sign(target_velocity)"
-        " + %.4f * target_velocity\n",
-        result->ks,
-        result->kv);
+    console.println();
+    console.printf("[FF] Calibration aborted: %s\n", reason);
+    console.println("[FF] Both motor PWM commands are zero.");
 }
 
-void printCombinedResults() {
-    Serial.println();
-    Serial.println("========================================================");
-    Serial.println("Combined feed-forward calibration results");
-    Serial.println("========================================================");
+void printFinalResults() {
+    const auto left = left_runner.result();
+    const auto right = right_runner.result();
 
-    printWheelResult(
-        "Left",
-        left_calibration_runner.result());
+    console.println();
+    console.println("========================================================");
+    console.println("Final directional feed-forward calibration results");
+    console.println("========================================================");
 
-    printWheelResult(
-        "Right",
-        right_calibration_runner.result());
-
-    Serial.println();
-    Serial.println("Suggested wheel configuration values:");
-
-    const auto left_result = left_calibration_runner.result();
-    if (left_result) {
-        Serial.printf(
-            "  left_feedforward_ks: %.4f\n",
-            left_result->ks);
-        Serial.printf(
-            "  left_feedforward_kv: %.4f\n",
-            left_result->kv);
+    if (left) {
+        console.printf(
+            "LEFT : Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
+            "R^2=%.5f, RMSE=%.4f PWM\n",
+            left->ks_forward, left->ks_reverse, left->kv, left->r_squared, left->rmse_pwm);
+        console.printf("       predicted |PWM| at 2 rad/s: fwd=%.2f rev=%.2f\n",
+                       left->ks_forward + 2.0F * left->kv, left->ks_reverse + 2.0F * left->kv);
+    } else {
+        console.println("LEFT : FAILED");
     }
 
-    const auto right_result = right_calibration_runner.result();
-    if (right_result) {
-        Serial.printf(
-            "  right_feedforward_ks: %.4f\n",
-            right_result->ks);
-        Serial.printf(
-            "  right_feedforward_kv: %.4f\n",
-            right_result->kv);
+    if (right) {
+        console.printf(
+            "RIGHT: Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
+            "R^2=%.5f, RMSE=%.4f PWM\n",
+            right->ks_forward, right->ks_reverse, right->kv, right->r_squared, right->rmse_pwm);
+        console.printf("       predicted |PWM| at 2 rad/s: fwd=%.2f rev=%.2f\n",
+                       right->ks_forward + 2.0F * right->kv, right->ks_reverse + 2.0F * right->kv);
+    } else {
+        console.println("RIGHT: FAILED");
     }
 
-    Serial.println("========================================================");
+    if (left && right) {
+        console.println();
+        console.println("Suggested production feed-forward parameters:");
+        console.printf("  left_feedforward_ks_forward: %.4f\n", left->ks_forward);
+        console.printf("  left_feedforward_ks_reverse: %.4f\n", left->ks_reverse);
+        console.printf("  left_feedforward_kv: %.4f\n", left->kv);
+        console.printf("  right_feedforward_ks_forward: %.4f\n", right->ks_forward);
+        console.printf("  right_feedforward_ks_reverse: %.4f\n", right->ks_reverse);
+        console.printf("  right_feedforward_kv: %.4f\n", right->kv);
+    }
+
+    console.println("========================================================");
 }
-
-// -----------------------------------------------------------------------------
-// Calibration control
-// -----------------------------------------------------------------------------
 
 void startCalibration() {
     if (calibration_started) {
-        Serial.println("Calibration is already running.");
+        console.println("Calibration is already running.");
         return;
     }
 
-    results_printed = false;
-    calibration_started = true;
+    left_runner.stop();
+    right_runner.stop();
+    left_motor.setPwmSpeed(0);
+    right_motor.setPwmSpeed(0);
+    motor_power_cycler.cancelAndEnable();
 
-    // Initialize the fixed-rate update schedule immediately before starting.
+    calibration_started = true;
+    calibration_stage = CalibrationStage::InitialMotorReset;
     last_update_ms = millis();
 
-    Serial.println();
-    Serial.println("Starting left and right feed-forward calibration...");
-
-    // Both runners must begin on the same control iteration so that the robot
-    // receives matching left/right PWM commands and travels approximately
-    // straight during each calibration point.
-    left_calibration_runner.start();
-    right_calibration_runner.start();
+    console.println();
+    console.println("[FF] Starting calibration with initial motor-driver reset...");
+    motor_power_cycler.request();
 }
 
-void stopCalibration() {
-    left_calibration_runner.stop();
-    right_calibration_runner.stop();
-
-    calibration_started = false;
-
-    Serial.println();
-    Serial.println("Calibration stopped. Both motor commands are zero.");
-}
-
-void processSerialCommand() {
-    while (Serial.available() > 0) {
-        const char command =
-            static_cast<char>(Serial.read());
-
+void processCommand() {
+    char command{};
+    while (console.readCommand(command)) {
         switch (command) {
             case 's':
             case 'S':
@@ -276,21 +341,88 @@ void processSerialCommand() {
 
             case 'x':
             case 'X':
-                stopCalibration();
+                if (calibration_started) {
+                    abortCalibration("stopped by user");
+                }
                 break;
 
-            case '\r':
-            case '\n':
-            case ' ':
+            case 'h':
+            case 'H':
+                printTestInstructions();
                 break;
 
             default:
-                Serial.printf(
-                    "Unknown command '%c'. Use 's' to start or 'x' to stop.\n",
-                    command);
                 break;
         }
     }
+}
+
+void updateInitialMotorReset() {
+    if (!motor_power_cycler.consumeCompletion()) {
+        return;
+    }
+
+    const bool left_started = left_runner.startCalibration();
+    const bool right_started = right_runner.startCalibration();
+
+    if (!left_started || !right_started) {
+        abortCalibration("failed to start directional calibration");
+        return;
+    }
+
+    calibration_stage = CalibrationStage::Running;
+}
+
+void serviceSamplePowerCycle() {
+    if (!left_runner.waitingForPeer() || !right_runner.waitingForPeer()) {
+        return;
+    }
+
+    // Consume completion first so it cannot be overwritten by a new request.
+    if (motor_power_cycler.consumeCompletion()) {
+        console.println();
+        console.println("[FF:SYNC] motor reset complete; advancing both runners.");
+        left_runner.advanceSynchronizedStep();
+        right_runner.advanceSynchronizedStep();
+        return;
+    }
+
+    if (motor_power_cycler.canRequest()) {
+        console.println();
+        console.println(
+            "[FF:SYNC] both samples complete; power-cycling drivers before next point.");
+        motor_power_cycler.request();
+    }
+}
+
+void updateRunningStage() {
+    left_runner.update(kCalibrationUpdatePeriodMs);
+    right_runner.update(kCalibrationUpdatePeriodMs);
+
+    if (left_runner.failed() || right_runner.failed()) {
+        abortCalibration("directional regression failed");
+        return;
+    }
+
+    serviceSamplePowerCycle();
+
+    if (left_runner.failed() || right_runner.failed()) {
+        abortCalibration("directional regression failed");
+        return;
+    }
+
+    if (!left_runner.finished() || !right_runner.finished()) {
+        return;
+    }
+
+    calibration_started = false;
+    calibration_stage = CalibrationStage::Idle;
+    left_motor.setPwmSpeed(0);
+    right_motor.setPwmSpeed(0);
+
+    console.println();
+    console.println("[FF] Calibration finished successfully.");
+    printFinalResults();
 }
 
 void updateCalibration() {
@@ -299,61 +431,23 @@ void updateCalibration() {
     }
 
     const uint32_t now_ms = millis();
-
-    if (now_ms - last_update_ms <
-        kCalibrationUpdatePeriodMs) {
+    if (now_ms - last_update_ms < kCalibrationUpdatePeriodMs) {
         return;
     }
 
     last_update_ms += kCalibrationUpdatePeriodMs;
 
-    left_calibration_runner.update(
-        kCalibrationUpdatePeriodMs);
+    switch (calibration_stage) {
+        case CalibrationStage::Idle:
+            break;
 
-    right_calibration_runner.update(
-        kCalibrationUpdatePeriodMs);
+        case CalibrationStage::InitialMotorReset:
+            updateInitialMotorReset();
+            break;
 
-    const bool left_waiting =
-        left_calibration_runner.waitingForPeer();
-
-    const bool right_waiting =
-        right_calibration_runner.waitingForPeer();
-
-    /*
-     * Neither wheel advances until both have:
-     *
-     * 1. reached steady state or timed out,
-     * 2. captured its sample,
-     * 3. completed braking,
-     * 4. completed its stationary pause.
-     */
-    if (left_waiting && right_waiting) {
-        Serial.println();
-        Serial.println(
-            "[FF:SYNC] Both wheels ready; advancing calibration point.");
-
-        left_calibration_runner.advanceSynchronizedStep();
-        right_calibration_runner.advanceSynchronizedStep();
-    }
-
-    const bool left_finished =
-        left_calibration_runner.finished();
-
-    const bool right_finished =
-        right_calibration_runner.finished();
-
-    /*
-     * With synchronized advancement and identical sweep configuration, both
-     * runners finish during the same coordinator iteration.
-     */
-    if (left_finished && right_finished) {
-        calibration_started = false;
-
-        Serial.println();
-        Serial.println(
-            "[FF:SYNC] Both wheel calibrations finished.");
-
-        printCombinedResults();
+        case CalibrationStage::Running:
+            updateRunningStage();
+            break;
     }
 }
 
@@ -362,35 +456,27 @@ void updateCalibration() {
 void setup() {
     Serial.begin(kSerialBaudRate);
 
-    // Wait briefly for a development terminal, but continue booting when the
-    // robot operates without a connected host.
-    constexpr uint32_t kSerialWaitTimeoutMs{2000};
-    const uint32_t serial_wait_start_ms = millis();
-
-    while (!Serial &&
-           millis() - serial_wait_start_ms < kSerialWaitTimeoutMs) {
-        delay(10);
+    if (!console.begin()) {
+        Serial.println("[CRITICAL] Failed to initialize wireless console.");
+        while (true) {
+            delay(1000);
+        }
     }
 
-    Serial.println();
-    Serial.println("Initializing feed-forward calibration hardware...");
+    console.println();
+    console.println("Initializing directional feed-forward calibration hardware...");
 
-    // Enable power for both motors before starting the rotation sequence.
-    pinMode(kMotorsPowerEnablePin, OUTPUT);
-    digitalWrite(kMotorsPowerEnablePin, HIGH);
+    motor_power_cycler.begin();
+    left_runner.begin();
+    right_runner.begin();
 
-    left_calibration_runner.begin();
-    right_calibration_runner.begin();
-
-    Serial.println("Hardware initialization complete.");
-
+    console.println("Hardware initialization complete.");
     printTestInstructions();
 }
 
 void loop() {
-    processSerialCommand();
+    processCommand();
+    motor_power_cycler.update();
     updateCalibration();
-
-    // Yield CPU time while preserving the 100 Hz calibration schedule.
     delay(1);
 }

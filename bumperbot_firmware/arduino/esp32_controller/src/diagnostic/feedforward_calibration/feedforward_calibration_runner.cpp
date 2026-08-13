@@ -1,29 +1,22 @@
 #include "feedforward_calibration_runner.hpp"
 
-#include <Arduino.h>
-
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 
 FeedForwardCalibrationRunner::FeedForwardCalibrationRunner(const char* runner_name,
                                                            BL2418Motor& motor,
                                                            BL2418Encoder& encoder,
                                                            uint32_t update_period_ms,
-                                                           float ticks_per_rev)
-    : FeedForwardCalibrationRunner{runner_name,      motor,         encoder,
-                                   update_period_ms, ticks_per_rev, Config{}} {}
-
-FeedForwardCalibrationRunner::FeedForwardCalibrationRunner(const char* runner_name,
-                                                           BL2418Motor& motor,
-                                                           BL2418Encoder& encoder,
-                                                           uint32_t update_period_ms,
                                                            float ticks_per_rev,
+                                                           Print& logger,
                                                            const Config& config)
     : runner_name_{runner_name},
       motor_{motor},
       encoder_{encoder},
       estimator_{ticks_per_rev},
+      logger_{logger},
       config_{config} {
     estimator_.configure(update_period_ms);
 }
@@ -31,56 +24,166 @@ FeedForwardCalibrationRunner::FeedForwardCalibrationRunner(const char* runner_na
 void FeedForwardCalibrationRunner::begin() {
     encoder_.begin();
     motor_.begin();
-
-    estimator_.reset();
-    resetRegression();
-
     motor_.setPwmSpeed(0);
 
-    running_ = false;
+    estimator_.reset();
+    resetVelocityWindow();
+    resetRegression();
     state_ = State::Idle;
 
     printPrefix();
-    Serial.println("initialized");
-}
-
-void FeedForwardCalibrationRunner::start() {
-    if (config_.pwm_start <= 0 || config_.pwm_end < config_.pwm_start || config_.pwm_step <= 0 ||
-        (!config_.calibrate_forward && !config_.calibrate_reverse) ||
-        (config_.capture_time_ms == 0 && config_.capture_sample_count == 0)) {
-        printPrefix();
-        Serial.println("cannot start: invalid calibration configuration");
-        return;
-    }
-
-    estimator_.reset();
-    resetRegression();
-
-    current_pwm_ = config_.pwm_start;
-
-    reverse_ = config_.calibrate_reverse;
-
-    running_ = true;
-
-    printPrefix();
-    Serial.printf("starting sweep: PWM %d..%d, step %d, direction=%s\n", config_.pwm_start,
-                  config_.pwm_end, config_.pwm_step, reverse_ ? "reverse" : "forward");
-
-    enterState(State::ApplyPWM);
+    logger_.println("initialized");
 }
 
 void FeedForwardCalibrationRunner::stop() {
     motor_.setPwmSpeed(0);
+    estimator_.reset();
+    resetVelocityWindow();
 
-    running_ = false;
-    enterState(State::Idle);
+    if (state_ != State::Finished && state_ != State::Failed) {
+        state_ = State::Idle;
+    }
+}
+
+bool FeedForwardCalibrationRunner::configIsValid() const {
+    if (config_.velocity_pwm_start <= 0 || config_.velocity_pwm_end < config_.velocity_pwm_start ||
+        config_.velocity_pwm_end > 255 || config_.velocity_pwm_step <= 0) {
+        return false;
+    }
+
+    // Direction-specific Ks requires measurements in both directions.
+    if (!config_.calibrate_forward || !config_.calibrate_reverse) {
+        return false;
+    }
+
+    if (config_.precondition_pwm <= 0 || config_.precondition_pwm > 255 ||
+        config_.precondition_time_ms == 0) {
+        return false;
+    }
+
+    if (config_.capture_time_ms == 0 && config_.capture_sample_count == 0) {
+        return false;
+    }
+
+    if (config_.capture_time_ms != 0 && config_.max_capture_wait_ms < config_.capture_time_ms) {
+        return false;
+    }
+
+    if (config_.minimum_regression_velocity <= 0.0F || config_.max_regression_stddev <= 0.0F ||
+        config_.minimum_regression_points_per_direction < 2) {
+        return false;
+    }
+
+    const size_t magnitude_count =
+        1U + static_cast<size_t>((config_.velocity_pwm_end - config_.velocity_pwm_start) /
+                                 config_.velocity_pwm_step);
+
+    return magnitude_count * 2U <= kMaxSamples;
+}
+
+bool FeedForwardCalibrationRunner::startCalibration() {
+    if ((state_ != State::Idle && state_ != State::Finished && state_ != State::Failed) ||
+        !configIsValid()) {
+        printPrefix();
+        logger_.println("cannot start directional feed-forward calibration");
+        return false;
+    }
+
+    motor_.setPwmSpeed(0);
+    estimator_.reset();
+    resetVelocityWindow();
+    resetRegression();
+
+    current_pwm_ = config_.velocity_pwm_start;
+    enterState(State::ApplyPrecondition);
 
     printPrefix();
-    Serial.println("stopped");
+    logger_.printf(
+        "calibration start: |PWM|=%d..%d step=%d; "
+        "calibration-only precondition=%d PWM for %lu ms; "
+        "model={Ks_forward,Ks_reverse,Kv}\n",
+        config_.velocity_pwm_start, config_.velocity_pwm_end, config_.velocity_pwm_step,
+        config_.precondition_pwm, static_cast<unsigned long>(config_.precondition_time_ms));
+
+    return true;
+}
+
+bool FeedForwardCalibrationRunner::waitingForPeer() const {
+    return state_ == State::WaitForPeer;
+}
+
+bool FeedForwardCalibrationRunner::finished() const {
+    return state_ == State::Finished;
+}
+
+bool FeedForwardCalibrationRunner::failed() const {
+    return state_ == State::Failed;
+}
+
+void FeedForwardCalibrationRunner::enterState(State next) {
+    state_ = next;
+    state_time_ms_ = 0;
+
+    switch (next) {
+        case State::Idle:
+        case State::Finished:
+        case State::Failed:
+            break;
+
+        case State::ApplyPrecondition:
+            estimator_.reset();
+            resetVelocityWindow();
+            break;
+
+        case State::Precondition:
+            resetVelocityWindow();
+            break;
+
+        case State::ApplyTestPWM:
+            break;
+
+        case State::Settling:
+            resetVelocityWindow();
+            break;
+
+        case State::WaitForSteadyState:
+            resetVelocityWindow();
+            printPrefix();
+            logger_.printf("waiting for steady state at test PWM %d\n", current_pwm_);
+            break;
+
+        case State::CaptureSample:
+            resetCaptureAccumulator();
+            printPrefix();
+            logger_.printf("capturing test PWM %d: duration=%lu ms, samples=%u\n", current_pwm_,
+                           static_cast<unsigned long>(config_.capture_time_ms),
+                           static_cast<unsigned>(config_.capture_sample_count));
+            break;
+
+        case State::Brake:
+            motor_.setPwmSpeed(0);
+            printPrefix();
+            logger_.println("point complete; PWM command zero");
+            break;
+
+        case State::Stop:
+            motor_.setPwmSpeed(0);
+            estimator_.reset();
+            printPrefix();
+            logger_.println("stationary pause");
+            break;
+
+        case State::WaitForPeer:
+            motor_.setPwmSpeed(0);
+            printPrefix();
+            logger_.printf("waiting for peer after test PWM %d\n", current_pwm_);
+            break;
+    }
 }
 
 void FeedForwardCalibrationRunner::update(uint32_t dt_ms) {
-    if (!running_) {
+    if (state_ == State::Idle || state_ == State::WaitForPeer || state_ == State::Finished ||
+        state_ == State::Failed) {
         return;
     }
 
@@ -88,10 +191,21 @@ void FeedForwardCalibrationRunner::update(uint32_t dt_ms) {
 
     switch (state_) {
         case State::Idle:
+        case State::WaitForPeer:
+        case State::Finished:
+        case State::Failed:
             break;
 
-        case State::ApplyPWM:
-            updateApplyPWM();
+        case State::ApplyPrecondition:
+            updateApplyPrecondition();
+            break;
+
+        case State::Precondition:
+            updatePrecondition();
+            break;
+
+        case State::ApplyTestPWM:
+            updateApplyTestPWM();
             break;
 
         case State::Settling:
@@ -113,101 +227,73 @@ void FeedForwardCalibrationRunner::update(uint32_t dt_ms) {
         case State::Stop:
             updateStop();
             break;
-
-        case State::WaitForPeer:
-            // Intentionally idle until the external coordinator releases both
-            // runners using advanceSynchronizedStep().
-            break;
-
-        case State::Finished:
-            break;
     }
 }
 
-void FeedForwardCalibrationRunner::enterState(State next) {
-    state_ = next;
-    state_time_ms_ = 0;
+int FeedForwardCalibrationRunner::signedPreconditionPwm() const {
+    const int magnitude = std::max(std::abs(current_pwm_), config_.precondition_pwm);
 
-    switch (state_) {
-        case State::Idle:
-            break;
+    return current_pwm_ > 0 ? magnitude : -magnitude;
+}
 
-        case State::ApplyPWM:
-            resetVelocityWindow();
-            break;
+void FeedForwardCalibrationRunner::updateApplyPrecondition() {
+    const int pwm = signedPreconditionPwm();
+    motor_.setPwmSpeed(pwm);
 
-        case State::Settling:
-            resetVelocityWindow();
-            break;
+    printPrefix();
+    logger_.printf("precondition: direction=%s, PWM=%d for %lu ms before test_PWM=%d\n",
+                   current_pwm_ > 0 ? "forward" : "reverse", pwm,
+                   static_cast<unsigned long>(config_.precondition_time_ms), current_pwm_);
 
-        case State::WaitForSteadyState:
-            resetVelocityWindow();
+    enterState(State::Precondition);
+}
 
-            printPrefix();
-            Serial.printf("waiting for steady state at PWM %d\n", current_pwm_);
-            break;
+void FeedForwardCalibrationRunner::updatePrecondition() {
+    (void)measureVelocity();
 
-        case State::CaptureSample:
-            resetCaptureAccumulator();
-
-            printPrefix();
-            Serial.printf("capturing PWM %d: duration=%lu ms, samples=%u\n", current_pwm_,
-                          static_cast<unsigned long>(config_.capture_time_ms),
-                          static_cast<unsigned>(config_.capture_sample_count));
-            break;
-
-        case State::Brake:
-            motor_.setPwmSpeed(0);
-
-            printPrefix();
-            Serial.println("sample complete; braking");
-            break;
-
-        case State::Stop:
-            motor_.setPwmSpeed(0);
-            estimator_.reset();
-
-            printPrefix();
-            Serial.println("stationary pause");
-            break;
-
-        case State::WaitForPeer:
-            motor_.setPwmSpeed(0);
-
-            printPrefix();
-            Serial.printf("waiting for peer after PWM %d\n", current_pwm_);
-            break;
-
-        case State::Finished:
-            motor_.setPwmSpeed(0);
-            running_ = false;
-
-            computeRegression();
-            printResult();
-            break;
+    if (state_time_ms_ >= config_.precondition_time_ms) {
+        enterState(State::ApplyTestPWM);
     }
 }
 
-void FeedForwardCalibrationRunner::updateApplyPWM() {
-    estimator_.reset();
-    resetVelocityWindow();
-
+void FeedForwardCalibrationRunner::updateApplyTestPWM() {
     motor_.setPwmSpeed(current_pwm_);
 
     printPrefix();
-    Serial.printf("applying %s PWM %d\n", current_pwm_ < 0 ? "reverse" : "forward", current_pwm_);
+    logger_.printf("applying TEST %s PWM %d after calibration-only preconditioning\n",
+                   current_pwm_ < 0 ? "reverse" : "forward", current_pwm_);
 
     enterState(State::Settling);
 }
 
 void FeedForwardCalibrationRunner::updateSettling() {
-    // Keep the reciprocal estimator current during acceleration. The velocity
-    // window is reset when WaitForSteadyState begins.
-    measureVelocity();
+    (void)measureVelocity();
 
     if (state_time_ms_ >= config_.settle_time_ms) {
         enterState(State::WaitForSteadyState);
     }
+}
+
+bool FeedForwardCalibrationRunner::steadyStateReached() {
+    newest_velocity_ = measureVelocity();
+
+    if (!std::isfinite(newest_velocity_) || velocity_window_count_ < kVelocityWindowSize ||
+        state_time_ms_ < config_.steady_time_ms) {
+        return false;
+    }
+
+    computeWindowStatistics();
+    newest_mean_deviation_ = std::fabs(newest_velocity_ - velocity_mean_);
+
+    const bool direction_matches =
+        std::signbit(velocity_mean_) == std::signbit(static_cast<float>(current_pwm_));
+
+    const bool speed_is_sufficient =
+        std::fabs(velocity_mean_) >= config_.minimum_regression_velocity;
+
+    return direction_matches && speed_is_sufficient &&
+           velocity_stddev_ <= config_.velocity_stddev_limit &&
+           newest_mean_deviation_ <= config_.velocity_mean_deviation_limit;
 }
 
 void FeedForwardCalibrationRunner::updateSteadyState() {
@@ -218,19 +304,93 @@ void FeedForwardCalibrationRunner::updateSteadyState() {
 
     if (state_time_ms_ >= config_.max_steady_wait_ms) {
         computeWindowStatistics();
+        newest_mean_deviation_ = std::fabs(newest_velocity_ - velocity_mean_);
 
         printPrefix();
-        Serial.printf(
-            "steady-state timeout at PWM %d: "
-            "mean=%8.3f, newest=%8.3f, "
-            "sigma=%.4f/%.4f, "
-            "mean_delta=%.4f/%.4f\n",
+        logger_.printf(
+            "test PWM %d rejected before capture: steady-state timeout; "
+            "mean=%8.3f, newest=%8.3f, sigma=%.4f/%.4f, "
+            "mean_delta=%.4f/%.4f, min|v|=%.2f\n",
             current_pwm_, velocity_mean_, newest_velocity_, velocity_stddev_,
             config_.velocity_stddev_limit, newest_mean_deviation_,
-            config_.velocity_mean_deviation_limit);
+            config_.velocity_mean_deviation_limit, config_.minimum_regression_velocity);
 
         enterState(State::Brake);
     }
+}
+
+float FeedForwardCalibrationRunner::measureVelocity() {
+    const EncoderEdgeData edge = encoder_.getEdgeData();
+    const float velocity = estimator_.update(edge);
+
+    if (!std::isfinite(velocity) || std::fabs(velocity) < 0.05F) {
+        return velocity;
+    }
+
+    velocity_window_[velocity_window_index_] = velocity;
+    velocity_window_index_ = (velocity_window_index_ + 1U) % kVelocityWindowSize;
+
+    if (velocity_window_count_ < kVelocityWindowSize) {
+        ++velocity_window_count_;
+    }
+
+    return velocity;
+}
+
+void FeedForwardCalibrationRunner::resetVelocityWindow() {
+    velocity_window_.fill(0.0F);
+    velocity_window_count_ = 0;
+    velocity_window_index_ = 0;
+    velocity_mean_ = 0.0F;
+    velocity_stddev_ = 0.0F;
+    newest_velocity_ = 0.0F;
+    newest_mean_deviation_ = 0.0F;
+}
+
+void FeedForwardCalibrationRunner::computeWindowStatistics() {
+    if (velocity_window_count_ == 0) {
+        velocity_mean_ = 0.0F;
+        velocity_stddev_ = 0.0F;
+        return;
+    }
+
+    double sum = 0.0;
+    for (size_t i = 0; i < velocity_window_count_; ++i) {
+        sum += velocity_window_[i];
+    }
+
+    velocity_mean_ = static_cast<float>(sum / static_cast<double>(velocity_window_count_));
+
+    double squared_error_sum = 0.0;
+    for (size_t i = 0; i < velocity_window_count_; ++i) {
+        const double error = static_cast<double>(velocity_window_[i]) - velocity_mean_;
+        squared_error_sum += error * error;
+    }
+
+    velocity_stddev_ = static_cast<float>(
+        std::sqrt(squared_error_sum / static_cast<double>(velocity_window_count_)));
+}
+
+void FeedForwardCalibrationRunner::resetCaptureAccumulator() {
+    capture_sample_count_ = 0;
+    capture_velocity_sum_ = 0.0;
+    capture_velocity_squared_sum_ = 0.0;
+}
+
+void FeedForwardCalibrationRunner::accumulateCaptureSample(float velocity) {
+    capture_velocity_sum_ += velocity;
+    capture_velocity_squared_sum_ += static_cast<double>(velocity) * static_cast<double>(velocity);
+    ++capture_sample_count_;
+}
+
+bool FeedForwardCalibrationRunner::captureRequirementsSatisfied() const {
+    const bool duration_satisfied =
+        config_.capture_time_ms == 0 || state_time_ms_ >= config_.capture_time_ms;
+
+    const bool count_satisfied =
+        config_.capture_sample_count == 0 || capture_sample_count_ >= config_.capture_sample_count;
+
+    return duration_satisfied && count_satisfied && capture_sample_count_ > 0;
 }
 
 void FeedForwardCalibrationRunner::updateCaptureSample() {
@@ -251,16 +411,81 @@ void FeedForwardCalibrationRunner::updateCaptureSample() {
         printPrefix();
 
         if (capture_sample_count_ > 0) {
-            Serial.printf("capture timeout at PWM %d; accepting %u samples\n", current_pwm_,
-                          static_cast<unsigned>(capture_sample_count_));
-
+            logger_.printf("capture timeout at PWM %d; finalizing %u samples\n", current_pwm_,
+                           static_cast<unsigned>(capture_sample_count_));
             finishSampleCapture();
         } else {
-            Serial.printf("capture timeout at PWM %d; no valid samples\n", current_pwm_);
+            logger_.printf("capture timeout at PWM %d; no valid samples\n", current_pwm_);
         }
 
         enterState(State::Brake);
     }
+}
+
+const char* FeedForwardCalibrationRunner::sampleRejectionReason(const Sample& sample) const {
+    if (!std::isfinite(sample.velocity) || !std::isfinite(sample.stddev)) {
+        return "non-finite velocity statistics";
+    }
+
+    if (sample.pwm == 0) {
+        return "zero PWM";
+    }
+
+    if (std::fabs(sample.velocity) < config_.minimum_regression_velocity) {
+        return "velocity below regression minimum";
+    }
+
+    if (sample.stddev > config_.max_regression_stddev) {
+        return "capture velocity standard deviation too high";
+    }
+
+    if (std::signbit(sample.velocity) != std::signbit(static_cast<float>(sample.pwm))) {
+        return "velocity direction does not match PWM direction";
+    }
+
+    return nullptr;
+}
+
+bool FeedForwardCalibrationRunner::sampleIsUsable(const Sample& sample) const {
+    return sampleRejectionReason(sample) == nullptr;
+}
+
+void FeedForwardCalibrationRunner::finishSampleCapture() {
+    if (capture_sample_count_ == 0) {
+        return;
+    }
+
+    const double count = static_cast<double>(capture_sample_count_);
+    const double mean = capture_velocity_sum_ / count;
+    const double mean_square = capture_velocity_squared_sum_ / count;
+    const double variance = std::max(0.0, mean_square - mean * mean);
+
+    const Sample candidate{
+        .pwm = current_pwm_,
+        .velocity = static_cast<float>(mean),
+        .stddev = static_cast<float>(std::sqrt(variance)),
+    };
+
+    printPrefix();
+    logger_.printf(
+        "capture: test_PWM=%4d, velocity=%8.3f rad/s, sigma=%6.4f, "
+        "capture_count=%u, capture_time=%lu ms\n",
+        candidate.pwm, candidate.velocity, candidate.stddev,
+        static_cast<unsigned>(capture_sample_count_), static_cast<unsigned long>(state_time_ms_));
+
+    if (const char* reason = sampleRejectionReason(candidate); reason != nullptr) {
+        printPrefix();
+        logger_.printf("sample rejected: PWM=%d, reason=%s\n", candidate.pwm, reason);
+        return;
+    }
+
+    if (sample_count_ >= samples_.size()) {
+        printPrefix();
+        logger_.println("sample buffer full; point discarded");
+        return;
+    }
+
+    samples_[sample_count_++] = candidate;
 }
 
 void FeedForwardCalibrationRunner::updateBrake() {
@@ -281,412 +506,226 @@ void FeedForwardCalibrationRunner::advanceSynchronizedStep() {
     }
 
     if (selectNextSweepPoint()) {
-        enterState(State::ApplyPWM);
+        enterState(State::ApplyPrecondition);
+        return;
+    }
+
+    computeRegression();
+
+    if (result_) {
+        state_ = State::Finished;
+        printResult();
     } else {
-        enterState(State::Finished);
+        state_ = State::Failed;
     }
 }
 
 bool FeedForwardCalibrationRunner::selectNextSweepPoint() {
-    if (reverse_ && current_pwm_ > 0) {
-        current_pwm_ = -current_pwm_;
+    const int magnitude = std::abs(current_pwm_);
+
+    // Sample +PWM then -PWM at every magnitude.  The measurements are kept
+    // separate in regression, so direction-specific Ks is retained.
+    if (current_pwm_ > 0) {
+        current_pwm_ = -magnitude;
         return true;
     }
 
-    current_pwm_ = std::abs(current_pwm_) + config_.pwm_step;
-
-    if (current_pwm_ <= config_.pwm_end) {
-        return true;
-    }
-
-    return false;
-}
-
-float FeedForwardCalibrationRunner::measureVelocity() {
-    const EncoderEdgeData edge = encoder_.getEdgeData();
-    const float velocity = estimator_.update(edge);
-
-    if (!std::isfinite(velocity) || std::fabs(velocity) < 0.05F) {
-        return velocity;
-    }
-
-    velocity_window_[velocity_window_index_] = velocity;
-
-    velocity_window_index_ = (velocity_window_index_ + 1U) % kVelocityWindowSize;
-
-    if (velocity_window_count_ < kVelocityWindowSize) {
-        ++velocity_window_count_;
-    }
-
-    return velocity;
-}
-
-void FeedForwardCalibrationRunner::resetVelocityWindow() {
-    velocity_window_.fill(0.0F);
-
-    velocity_window_count_ = 0;
-    velocity_window_index_ = 0;
-
-    velocity_mean_ = 0.0F;
-    velocity_stddev_ = 0.0F;
-}
-
-void FeedForwardCalibrationRunner::computeWindowStatistics() {
-    if (velocity_window_count_ == 0) {
-        velocity_mean_ = 0.0F;
-        velocity_stddev_ = 0.0F;
-        return;
-    }
-
-    double sum = 0.0;
-
-    for (size_t index = 0; index < velocity_window_count_; ++index) {
-        sum += velocity_window_[index];
-    }
-
-    velocity_mean_ = static_cast<float>(sum / static_cast<double>(velocity_window_count_));
-
-    double squared_error_sum = 0.0;
-
-    for (size_t index = 0; index < velocity_window_count_; ++index) {
-        const double error = static_cast<double>(velocity_window_[index]) - velocity_mean_;
-
-        squared_error_sum += error * error;
-    }
-
-    const double variance = squared_error_sum / static_cast<double>(velocity_window_count_);
-
-    velocity_stddev_ = static_cast<float>(std::sqrt(variance));
-}
-
-bool FeedForwardCalibrationRunner::steadyStateReached() {
-    newest_velocity_ = measureVelocity();
-
-    if (velocity_window_count_ < kVelocityWindowSize) {
+    const int next = magnitude + config_.velocity_pwm_step;
+    if (next > config_.velocity_pwm_end) {
         return false;
     }
 
-    if (state_time_ms_ < config_.steady_time_ms) {
-        return false;
-    }
-
-    computeWindowStatistics();
-
-    newest_mean_deviation_ = std::fabs(newest_velocity_ - velocity_mean_);
-
-    const bool variation_is_small = velocity_stddev_ <= config_.velocity_stddev_limit;
-
-    const bool newest_matches_mean =
-        newest_mean_deviation_ <= config_.velocity_mean_deviation_limit;
-
-    return variation_is_small && newest_matches_mean;
-}
-
-void FeedForwardCalibrationRunner::resetCaptureAccumulator() {
-    capture_sample_count_ = 0;
-    capture_velocity_sum_ = 0.0;
-    capture_velocity_squared_sum_ = 0.0;
-}
-
-void FeedForwardCalibrationRunner::accumulateCaptureSample(float velocity) {
-    capture_velocity_sum_ += velocity;
-
-    capture_velocity_squared_sum_ += static_cast<double>(velocity) * static_cast<double>(velocity);
-
-    ++capture_sample_count_;
-}
-
-bool FeedForwardCalibrationRunner::captureRequirementsSatisfied() const {
-    const bool duration_satisfied =
-        config_.capture_time_ms == 0 || state_time_ms_ >= config_.capture_time_ms;
-
-    const bool count_satisfied =
-        config_.capture_sample_count == 0 || capture_sample_count_ >= config_.capture_sample_count;
-
-    return duration_satisfied && count_satisfied && capture_sample_count_ > 0;
-}
-
-void FeedForwardCalibrationRunner::finishSampleCapture() {
-    if (capture_sample_count_ == 0) {
-        return;
-    }
-
-    if (sample_count_ >= samples_.size()) {
-        printPrefix();
-        Serial.println("sample buffer full; point discarded");
-        return;
-    }
-
-    const double count = static_cast<double>(capture_sample_count_);
-
-    const double mean = capture_velocity_sum_ / count;
-
-    const double mean_square = capture_velocity_squared_sum_ / count;
-
-    // Guard against a tiny negative result caused by floating-point rounding.
-    const double variance = std::max(0.0, mean_square - mean * mean);
-
-    Sample& sample = samples_[sample_count_++];
-
-    sample.pwm = current_pwm_;
-    sample.velocity = static_cast<float>(mean);
-    sample.stddev = static_cast<float>(std::sqrt(variance));
-
-    printPrefix();
-    Serial.printf(
-        "sample %02u: PWM=%4d, velocity=%8.3f rad/s, "
-        "sigma=%6.4f, capture_count=%u, capture_time=%lu ms\n",
-        static_cast<unsigned>(sample_count_), sample.pwm, sample.velocity, sample.stddev,
-        static_cast<unsigned>(capture_sample_count_), static_cast<unsigned long>(state_time_ms_));
+    current_pwm_ = next;
+    return true;
 }
 
 void FeedForwardCalibrationRunner::resetRegression() {
     samples_.fill(Sample{});
     sample_count_ = 0;
-
-    resetVelocityWindow();
     resetCaptureAccumulator();
-
     result_.reset();
 }
 
-bool FeedForwardCalibrationRunner::sampleIsUsable(const Sample& sample) const {
-    if (!std::isfinite(sample.velocity) || !std::isfinite(sample.stddev)) {
-        return false;
-    }
-
-    if (sample.pwm == 0 || std::fabs(sample.velocity) < config_.minimum_regression_velocity) {
-        return false;
-    }
-
-    if (std::signbit(sample.velocity) != std::signbit(static_cast<float>(sample.pwm))) {
-        return false;
-    }
-
-    return true;
-}
-
 void FeedForwardCalibrationRunner::computeRegression() {
-    size_t used_sample_count = 0;
+    result_.reset();
 
-    if (config_.use_fixed_static_friction) {
-        // With independently measured Ks, fit only:
-        //
-        //   |PWM| - Ks = Kv * |velocity|
-        //
-        // The least-squares line is constrained through the origin.
-        double sum_velocity_squared = 0.0;
-        double sum_velocity_pwm = 0.0;
+    DirectionAccumulator forward{};
+    DirectionAccumulator reverse{};
 
-        for (size_t index = 0; index < sample_count_; ++index) {
-            const Sample& sample = samples_[index];
-
-            if (!sampleIsUsable(sample)) {
-                continue;
-            }
-
-            const double velocity = std::fabs(sample.velocity);
-            const double effective_pwm = std::max(
-                0.0, static_cast<double>(std::abs(sample.pwm)) - config_.static_friction_pwm);
-
-            sum_velocity_squared += velocity * velocity;
-            sum_velocity_pwm += velocity * effective_pwm;
-
-            ++used_sample_count;
-        }
-
-        if (used_sample_count < 2 ||
-            sum_velocity_squared <= std::numeric_limits<double>::epsilon()) {
-            Serial.println("Feed-forward regression failed: insufficient usable samples.");
-            result_.reset();
-            return;
-        }
-
-        const float kv = static_cast<float>(sum_velocity_pwm / sum_velocity_squared);
-
-        result_ = CalibrationResult{.kv = kv,
-                                    .ks = config_.static_friction_pwm,
-                                    .r_squared = 0.0F,
-                                    .rmse_pwm = 0.0F,
-                                    .sample_count = used_sample_count};
-    } else {
-        // Fit:
-        //
-        //   y = Ks + Kv*x
-        //
-        // where:
-        //   x = |velocity|
-        //   y = |PWM|
-        double sum_x = 0.0;
-        double sum_y = 0.0;
-        double sum_x_squared = 0.0;
-        double sum_xy = 0.0;
-
-        for (size_t index = 0; index < sample_count_; ++index) {
-            const Sample& sample = samples_[index];
-
-            if (!sampleIsUsable(sample)) {
-                continue;
-            }
-
-            const double x = std::fabs(sample.velocity);
-            const double y = std::abs(sample.pwm);
-
-            sum_x += x;
-            sum_y += y;
-            sum_x_squared += x * x;
-            sum_xy += x * y;
-
-            ++used_sample_count;
-        }
-
-        if (used_sample_count < 2) {
-            Serial.println("Feed-forward regression failed: insufficient usable samples.");
-            result_.reset();
-            return;
-        }
-
-        const double sample_count = static_cast<double>(used_sample_count);
-
-        const double denominator = sample_count * sum_x_squared - sum_x * sum_x;
-
-        if (std::fabs(denominator) <= std::numeric_limits<double>::epsilon()) {
-            Serial.println(
-                "Feed-forward regression failed: velocity samples have "
-                "insufficient spread.");
-            result_.reset();
-            return;
-        }
-
-        const double kv = (sample_count * sum_xy - sum_x * sum_y) / denominator;
-
-        const double ks = (sum_y - kv * sum_x) / sample_count;
-
-        if (!std::isfinite(kv) || !std::isfinite(ks) || kv <= 0.0) {
-            Serial.println("Feed-forward regression failed: invalid fitted coefficients.");
-            result_.reset();
-            return;
-        }
-
-        result_ = CalibrationResult{.kv = static_cast<float>(kv),
-                                    .ks = static_cast<float>(std::max(0.0, ks)),
-                                    .r_squared = 0.0F,
-                                    .rmse_pwm = 0.0F,
-                                    .sample_count = used_sample_count};
-    }
-
-    // Compute fit-quality metrics for either regression mode.
-    double measured_pwm_sum = 0.0;
-
-    for (size_t index = 0; index < sample_count_; ++index) {
-        if (sampleIsUsable(samples_[index])) {
-            measured_pwm_sum += std::abs(samples_[index].pwm);
-        }
-    }
-
-    const double mean_measured_pwm = measured_pwm_sum / static_cast<double>(used_sample_count);
-
-    double residual_sum_squared = 0.0;
-    double total_sum_squared = 0.0;
-
-    for (size_t index = 0; index < sample_count_; ++index) {
-        const Sample& sample = samples_[index];
-
+    for (size_t i = 0; i < sample_count_; ++i) {
+        const Sample& sample = samples_[i];
         if (!sampleIsUsable(sample)) {
             continue;
         }
 
-        const double measured_pwm = std::abs(sample.pwm);
-        const double velocity = std::fabs(sample.velocity);
+        const double x = std::fabs(static_cast<double>(sample.velocity));
+        const double y = static_cast<double>(std::abs(sample.pwm));
 
-        const double predicted_pwm =
-            static_cast<double>(result_->ks) + static_cast<double>(result_->kv) * velocity;
+        DirectionAccumulator& direction = sample.pwm > 0 ? forward : reverse;
 
-        const double residual = measured_pwm - predicted_pwm;
-        residual_sum_squared += residual * residual;
+        ++direction.count;
+        direction.sum_x += x;
+        direction.sum_y += y;
 
-        const double deviation = measured_pwm - mean_measured_pwm;
-        total_sum_squared += deviation * deviation;
+        printPrefix();
+        logger_.printf("regression sample: %s |PWM|=%d |v|=%.3f sigma=%.4f\n",
+                       sample.pwm > 0 ? "forward" : "reverse", std::abs(sample.pwm), x,
+                       sample.stddev);
     }
 
-    result_->rmse_pwm = static_cast<float>(
-        std::sqrt(residual_sum_squared / static_cast<double>(used_sample_count)));
-
-    if (total_sum_squared > std::numeric_limits<double>::epsilon()) {
-        result_->r_squared = static_cast<float>(1.0 - residual_sum_squared / total_sum_squared);
-    } else {
-        result_->r_squared = 0.0F;
+    if (forward.count < config_.minimum_regression_points_per_direction ||
+        reverse.count < config_.minimum_regression_points_per_direction) {
+        printPrefix();
+        logger_.printf(
+            "regression failed: forward points=%u reverse points=%u; "
+            "minimum per direction=%u\n",
+            static_cast<unsigned>(forward.count), static_cast<unsigned>(reverse.count),
+            static_cast<unsigned>(config_.minimum_regression_points_per_direction));
+        return;
     }
+
+    const double forward_mean_x = forward.sum_x / static_cast<double>(forward.count);
+    const double forward_mean_y = forward.sum_y / static_cast<double>(forward.count);
+    const double reverse_mean_x = reverse.sum_x / static_cast<double>(reverse.count);
+    const double reverse_mean_y = reverse.sum_y / static_cast<double>(reverse.count);
+
+    // Shared-slope/group-intercept least squares:
+    //   y_f = Ks_f + Kv*x_f
+    //   y_r = Ks_r + Kv*x_r
+    double centered_xy = 0.0;
+    double centered_x2 = 0.0;
+
+    for (size_t i = 0; i < sample_count_; ++i) {
+        const Sample& sample = samples_[i];
+        if (!sampleIsUsable(sample)) {
+            continue;
+        }
+
+        const bool is_forward = sample.pwm > 0;
+        const double x = std::fabs(static_cast<double>(sample.velocity));
+        const double y = static_cast<double>(std::abs(sample.pwm));
+
+        const double mean_x = is_forward ? forward_mean_x : reverse_mean_x;
+        const double mean_y = is_forward ? forward_mean_y : reverse_mean_y;
+
+        const double dx = x - mean_x;
+        const double dy = y - mean_y;
+
+        centered_xy += dx * dy;
+        centered_x2 += dx * dx;
+    }
+
+    if (centered_x2 <= std::numeric_limits<double>::epsilon()) {
+        printPrefix();
+        logger_.println("regression failed: insufficient velocity spread");
+        return;
+    }
+
+    const double kv = centered_xy / centered_x2;
+    const double ks_forward = forward_mean_y - kv * forward_mean_x;
+    const double ks_reverse = reverse_mean_y - kv * reverse_mean_x;
+
+    if (!std::isfinite(ks_forward) || !std::isfinite(ks_reverse) || !std::isfinite(kv) ||
+        ks_forward < 0.0 || ks_reverse < 0.0 || kv <= 0.0) {
+        printPrefix();
+        logger_.println("regression failed: invalid directional Ks/Kv");
+        return;
+    }
+
+    const size_t total_count = forward.count + reverse.count;
+    const double overall_mean_y =
+        (forward.sum_y + reverse.sum_y) / static_cast<double>(total_count);
+
+    double residual_ss = 0.0;
+    double total_ss = 0.0;
+
+    for (size_t i = 0; i < sample_count_; ++i) {
+        const Sample& sample = samples_[i];
+        if (!sampleIsUsable(sample)) {
+            continue;
+        }
+
+        const double x = std::fabs(static_cast<double>(sample.velocity));
+        const double y = static_cast<double>(std::abs(sample.pwm));
+        const double ks = sample.pwm > 0 ? ks_forward : ks_reverse;
+        const double predicted = ks + kv * x;
+        const double residual = y - predicted;
+
+        residual_ss += residual * residual;
+
+        const double deviation = y - overall_mean_y;
+        total_ss += deviation * deviation;
+    }
+
+    result_ = CalibrationResult{
+        .ks_forward = static_cast<float>(ks_forward),
+        .ks_reverse = static_cast<float>(ks_reverse),
+        .kv = static_cast<float>(kv),
+        .r_squared = total_ss > std::numeric_limits<double>::epsilon()
+                         ? static_cast<float>(1.0 - residual_ss / total_ss)
+                         : 0.0F,
+        .rmse_pwm = static_cast<float>(std::sqrt(residual_ss / static_cast<double>(total_count))),
+        .forward_sample_count = forward.count,
+        .reverse_sample_count = reverse.count,
+    };
 }
 
 void FeedForwardCalibrationRunner::printPrefix() const {
-    Serial.printf("[FF:%s] ", runner_name_ != nullptr ? runner_name_ : "UNKNOWN");
+    logger_.printf("[FF:%s] ", runner_name_ != nullptr ? runner_name_ : "UNKNOWN");
 }
 
 void FeedForwardCalibrationRunner::printResult() const {
-    Serial.println();
+    logger_.println();
     printPrefix();
-    Serial.println("========================================");
-
+    logger_.println("========================================");
     printPrefix();
-    Serial.println("feed-forward calibration complete");
-
+    logger_.println("directional moving-state calibration complete");
     printPrefix();
-    Serial.println("model: PWM = Ks*sign(velocity) + Kv*velocity");
-
-    printPrefix();
-    Serial.printf("captured samples: %u\n", static_cast<unsigned>(sample_count_));
+    logger_.println("model: one Kv with direction-specific Ks; no startup PWM");
 
     if (!result_) {
         printPrefix();
-        Serial.println("FAILED: no valid calibration result");
-
-        printPrefix();
-        Serial.println("check steady-state limits and captured samples");
-
-        printPrefix();
-        Serial.println("========================================");
+        logger_.println("FAILED: no valid calibration result");
         return;
     }
 
     printPrefix();
-    Serial.printf("regression samples: %u\n", static_cast<unsigned>(result_->sample_count));
+    logger_.printf("Ks_forward = %.4f PWM\n", result_->ks_forward);
+    printPrefix();
+    logger_.printf("Ks_reverse = %.4f PWM\n", result_->ks_reverse);
+    printPrefix();
+    logger_.printf("Kv = %.4f PWM/(rad/s)\n", result_->kv);
+    printPrefix();
+    logger_.printf("R^2 = %.5f\n", result_->r_squared);
+    printPrefix();
+    logger_.printf("RMSE = %.4f PWM\n", result_->rmse_pwm);
+    printPrefix();
+    logger_.printf("regression points: forward=%u reverse=%u\n",
+                   static_cast<unsigned>(result_->forward_sample_count),
+                   static_cast<unsigned>(result_->reverse_sample_count));
 
     printPrefix();
-    Serial.printf("Ks = %.4f PWM\n", result_->ks);
+    logger_.printf("forward: pwm_ff = %.4f + %.4f * |velocity|\n", result_->ks_forward,
+                   result_->kv);
+    printPrefix();
+    logger_.printf("reverse: pwm_ff = -(%.4f + %.4f * |velocity|)\n", result_->ks_reverse,
+                   result_->kv);
 
     printPrefix();
-    Serial.printf("Kv = %.4f PWM/(rad/s)\n", result_->kv);
+    logger_.printf("predicted |PWM| at 2 rad/s: forward=%.2f reverse=%.2f\n",
+                   result_->ks_forward + 2.0F * result_->kv,
+                   result_->ks_reverse + 2.0F * result_->kv);
 
-    printPrefix();
-    Serial.printf("R^2 = %.5f\n", result_->r_squared);
-
-    printPrefix();
-    Serial.printf("RMSE = %.4f PWM\n", result_->rmse_pwm);
-
-    printPrefix();
-    Serial.println("feed-forward equation:");
-
-    printPrefix();
-    Serial.printf(
-        "pwm_ff = %.4f * sign(target_velocity)"
-        " + %.4f * target_velocity\n",
-        result_->ks, result_->kv);
-
-    printPrefix();
-    Serial.println("configuration:");
-
-    printPrefix();
-    Serial.printf("feedforward_ks: %.4f\n", result_->ks);
-
-    printPrefix();
-    Serial.printf("feedforward_kv: %.4f\n", result_->kv);
-
-    if (result_->r_squared < 0.95F) {
+    if (result_->r_squared < 0.98F) {
         printPrefix();
-        Serial.println("WARNING: R^2 < 0.95; linear model quality is limited");
+        logger_.println("WARNING: R^2 < 0.98; inspect directional samples");
+    }
+
+    if (result_->rmse_pwm > 5.0F) {
+        printPrefix();
+        logger_.println("WARNING: RMSE > 5 PWM; inspect low-speed stability");
     }
 
     printPrefix();
-    Serial.println("========================================");
+    logger_.println("========================================");
 }
