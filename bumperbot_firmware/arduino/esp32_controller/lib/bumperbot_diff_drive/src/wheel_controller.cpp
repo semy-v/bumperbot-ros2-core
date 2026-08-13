@@ -13,8 +13,9 @@ WheelController::WheelController(uint8_t direction_pin,
 void WheelController::configure(const uint32_t control_period_ms, const WheelConfig& wheel_config) {
     velocity_estimator_.configure(control_period_ms);
 
-    feedforward_static_friction_gain_ = wheel_config.feedforward_ks;
-    feedforward_velocity_gain_ = wheel_config.feedforward_kv;
+    feedforward_ks_forward_ = wheel_config.feedforward_ks_forward;
+    feedforward_ks_reverse_ = wheel_config.feedforward_ks_reverse;
+    feedforward_kv_ = wheel_config.feedforward_kv;
     max_pid_correction_pwm_ = wheel_config.max_feedback_pwm;
 
     pid_.SetTunings(wheel_config.feedback_kp, wheel_config.feedback_ki, wheel_config.feedback_kd);
@@ -210,9 +211,12 @@ float WheelController::calculateFeedForwardPwm() const {
     if (target_velocity_ == 0.0f) {
         return 0.0f;
     }
-    const float feedforward = std::copysign(feedforward_static_friction_gain_, target_velocity_) +
-                              feedforward_velocity_gain_ * target_velocity_;
-    return std::clamp(feedforward, kMinPwm, kMaxPwm);
+    const float ks = target_velocity_ > 0.0f ? feedforward_ks_forward_ : feedforward_ks_reverse_;
+
+    const float magnitude =
+        std::clamp(ks + feedforward_kv_ * std::fabs(target_velocity_), 0.0F, kMaxPwm);
+
+    return std::copysign(magnitude, target_velocity_);
 }
 
 int WheelController::calculateMotorSpeedPwm() const {

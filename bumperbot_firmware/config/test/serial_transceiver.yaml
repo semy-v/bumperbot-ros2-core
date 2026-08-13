@@ -7,18 +7,20 @@ serial_transceiver:
 
     control_rate_hz: 100
 
-    right_wheel:
-      feedforward_ks: 13.25
-      feedforward_kv: 11.29
-      feedback_kp: 0.0
-      feedback_ki: 0.0
-      feedback_kd: 0.0
-      max_feedback_pwm: 100
-
     left_wheel:
-      feedforward_ks: 13.23
-      feedforward_kv: 10.93
+      feedforward_ks_forward: 67.13
+      feedforward_ks_reverse: 54.54
+      feedforward_kv: 10.31
       feedback_kp: 0.0
       feedback_ki: 0.0
       feedback_kd: 0.0
-      max_feedback_pwm: 100
+      max_pid_correction: 50
+
+    right_wheel:
+      feedforward_ks_forward: 65.83
+      feedforward_ks_reverse: 54.33
+      feedforward_kv: 10.39
+      feedback_kp: 0.0
+      feedback_ki: 0.0
+      feedback_kd: 0.0
+      max_pid_correction: 50

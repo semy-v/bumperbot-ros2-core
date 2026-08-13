@@ -37,6 +37,7 @@ constexpr BaseType_t kDiffDriveControlTaskCpuCore{1};
 
 void setup() {
     Serial.begin(115200);
+
     while (!Serial) {
         delay(1);
     }
@@ -61,15 +62,15 @@ void setup() {
     configASSERT(task_shared_data.imu_state_queue != nullptr);
     configASSERT(task_shared_data.system_state_response_queue != nullptr);
 
-    configASSERT(xTaskCreatePinnedToCore(
-                     diffDriveControlTask, "DiffDriveControlTask", 4096, &task_shared_data,
-                     kDiffDriveControlTaskPriority, &task_shared_data.diff_drive_control_task_handle,
-                     kDiffDriveControlTaskCpuCore) == pdPASS);
+    configASSERT(xTaskCreatePinnedToCore(diffDriveControlTask, "DiffDriveControlTask", 4096,
+                                         &task_shared_data, kDiffDriveControlTaskPriority,
+                                         &task_shared_data.diff_drive_control_task_handle,
+                                         kDiffDriveControlTaskCpuCore) == pdPASS);
 
-    configASSERT(xTaskCreatePinnedToCore(
-                     sensorReadTask, "SensorReadTask", 4096, &task_shared_data,
-                     kSensorReadTaskPriority, &task_shared_data.sensor_read_task_handle,
-                     kSensorReadTaskCpuCore) == pdPASS);
+    configASSERT(xTaskCreatePinnedToCore(sensorReadTask, "SensorReadTask", 4096, &task_shared_data,
+                                         kSensorReadTaskPriority,
+                                         &task_shared_data.sensor_read_task_handle,
+                                         kSensorReadTaskCpuCore) == pdPASS);
 
     // Create SerialProcessTask last: its higher Core-0 priority can preempt setup,
     // so all queues and the SensorReadTask handle must already be valid.

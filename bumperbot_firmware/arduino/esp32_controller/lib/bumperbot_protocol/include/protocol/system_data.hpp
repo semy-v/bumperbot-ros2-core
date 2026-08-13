@@ -6,8 +6,8 @@
 #pragma pack(push, 1)
 
 struct WheelConfig {
-    // Static-friction feed-forward term [PWM].
-    float feedforward_ks;
+    float feedforward_ks_forward;
+    float feedforward_ks_reverse;
 
     // Velocity feed-forward gain [PWM / (rad/s)].
     float feedforward_kv;
@@ -23,9 +23,9 @@ struct WheelConfig {
     bool operator==(const WheelConfig&) const = default;
 
     bool valid() const {
-        return max_feedback_pwm > 0 && max_feedback_pwm <= 255 && feedforward_ks >= 0.0f &&
-               feedforward_kv >= 0.0f && feedback_kp >= 0.0f && feedback_ki >= 0.0f &&
-               feedback_kd >= 0.0f;
+        return max_feedback_pwm > 0 && max_feedback_pwm <= 255 && feedforward_ks_forward >= 0.0f &&
+               feedforward_ks_reverse >= 0.0f && feedforward_kv >= 0.0f && feedback_kp >= 0.0f &&
+               feedback_ki >= 0.0f && feedback_kd >= 0.0f;
     }
 };
 
@@ -36,9 +36,7 @@ struct DiffDriveConfigData {
 
     bool operator==(const DiffDriveConfigData&) const = default;
 
-    bool valid() const {
-        return right_wheel.valid() && left_wheel.valid() && control_rate_hz > 0;
-    }
+    bool valid() const { return right_wheel.valid() && left_wheel.valid() && control_rate_hz > 0; }
 };
 
 struct ImuConfigData {
@@ -83,8 +81,8 @@ struct SystemStateData {
 
 #pragma pack(pop)
 
-static_assert(sizeof(WheelConfig) == 22, "WheelConfig size mismatch!");
-static_assert(sizeof(DiffDriveConfigData) == 46, "DiffDriveConfigData size mismatch!");
+static_assert(sizeof(WheelConfig) == 26, "WheelConfig size mismatch!");
+static_assert(sizeof(DiffDriveConfigData) == 54, "DiffDriveConfigData size mismatch!");
 static_assert(sizeof(ImuConfigData) == 3, "ImuConfigData size mismatch!");
 static_assert(sizeof(DiffDriveCommandData) == 9, "DiffDriveCommandData size mismatch!");
 static_assert(sizeof(DiffDriveStateData) == 8, "DiffDriveStateData size mismatch!");

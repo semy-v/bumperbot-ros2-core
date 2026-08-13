@@ -13,8 +13,9 @@
  * Arduino bootloader to settle.
  * - Phase 1 (IMU Calibration): Sends an initial `ImuConfigData` message specifying
  * the calibration period (2000ms) and blocks while waiting for an echo confirmation.
- * - Phase 2 (Wheel Config): Sends a `DiffDriveConfigData` message containing PID rate,
- * gains (kp, ki, kd), and PWM deadband limits for both wheels.
+ * - Phase 2 (Wheel Config): Sends a `DiffDriveConfigData` message containing the control
+ * rate plus direction-specific feed-forward Ks gains, shared Kv, feedback PID gains, and
+ * maximum feedback PWM for both wheels.
  * - Blocks and waits for the Arduino to echo the exact same config parameters back,
  * validating the MCU is running the correct parameters before continuing.
  *
@@ -141,14 +142,16 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
         const auto& left = cfg_resp->left_wheel;
         RCLCPP_ERROR(logger,
                      "Differential drive handshake mismatch: control rate %u Hz | "
-                     "Right wheel: { Ks=%.4f, Kv=%.4f, Kp=%.4f, Ki=%.4f, Kd=%.4f, "
-                     "max feedback=%u PWM } | "
-                     "Left wheel: { Ks=%.4f, Kv=%.4f, Kp=%.4f, Ki=%.4f, Kd=%.4f, "
-                     "max feedback=%u PWM }",
-                     static_cast<unsigned>(cfg_resp->control_rate_hz), right.feedforward_ks,
-                     right.feedforward_kv, right.feedback_kp, right.feedback_ki, right.feedback_kd,
-                     static_cast<unsigned>(right.max_feedback_pwm), left.feedforward_ks,
-                     left.feedforward_kv, left.feedback_kp, left.feedback_ki, left.feedback_kd,
+                     "Right wheel: { Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
+                     "Kp=%.4f, Ki=%.4f, Kd=%.4f, max feedback=%u PWM } | "
+                     "Left wheel: { Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
+                     "Kp=%.4f, Ki=%.4f, Kd=%.4f, max feedback=%u PWM }",
+                     static_cast<unsigned>(cfg_resp->control_rate_hz),
+                     right.feedforward_ks_forward, right.feedforward_ks_reverse,
+                     right.feedforward_kv, right.feedback_kp, right.feedback_ki,
+                     right.feedback_kd, static_cast<unsigned>(right.max_feedback_pwm),
+                     left.feedforward_ks_forward, left.feedforward_ks_reverse, left.feedforward_kv,
+                     left.feedback_kp, left.feedback_ki, left.feedback_kd,
                      static_cast<unsigned>(left.max_feedback_pwm));
         return CallbackReturn::ERROR;
     }

@@ -12,7 +12,7 @@ def generate_launch_description():
 
     scenario_file_name_arg = DeclareLaunchArgument(
         "scenario_file_name",
-        default_value="pid_test_scenario.yaml",
+        default_value="robot_move_scenario.yaml",
         description="Name of the test scenario YAML file located inside config/test/"
     )
 

@@ -28,18 +28,24 @@ class DiffDriveManager:
             return self.node.get_parameter(name).value
 
         self._expected_config = DiffDriveConfigMsg(
-            right_feedforward_ks=parameter("right_wheel.feedforward_ks"),
+            right_feedforward_ks_forward=parameter(
+                "right_wheel.feedforward_ks_forward"
+            ),
+            right_feedforward_ks_reverse=parameter(
+                "right_wheel.feedforward_ks_reverse"
+            ),
             right_feedforward_kv=parameter("right_wheel.feedforward_kv"),
             right_feedback_kp=parameter("right_wheel.feedback_kp"),
             right_feedback_ki=parameter("right_wheel.feedback_ki"),
             right_feedback_kd=parameter("right_wheel.feedback_kd"),
-            right_max_feedback_pwm=parameter("right_wheel.max_feedback_pwm"),
-            left_feedforward_ks=parameter("left_wheel.feedforward_ks"),
+            right_max_pid_correction=parameter("right_wheel.max_pid_correction"),
+            left_feedforward_ks_forward=parameter("left_wheel.feedforward_ks_forward"),
+            left_feedforward_ks_reverse=parameter("left_wheel.feedforward_ks_reverse"),
             left_feedforward_kv=parameter("left_wheel.feedforward_kv"),
             left_feedback_kp=parameter("left_wheel.feedback_kp"),
             left_feedback_ki=parameter("left_wheel.feedback_ki"),
             left_feedback_kd=parameter("left_wheel.feedback_kd"),
-            left_max_feedback_pwm=parameter("left_wheel.max_feedback_pwm"),
+            left_max_pid_correction=parameter("left_wheel.max_pid_correction"),
             control_rate_hz=parameter("control_rate_hz"),
         )
 
@@ -60,18 +66,56 @@ class DiffDriveManager:
             return abs(actual - configured) < 1e-3
 
         matches = (
-            floats_match(msg.right_feedforward_ks, expected.right_feedforward_ks)
-            and floats_match(msg.right_feedforward_kv, expected.right_feedforward_kv)
-            and floats_match(msg.right_feedback_kp, expected.right_feedback_kp)
-            and floats_match(msg.right_feedback_ki, expected.right_feedback_ki)
-            and floats_match(msg.right_feedback_kd, expected.right_feedback_kd)
-            and msg.right_max_feedback_pwm == expected.right_max_feedback_pwm
-            and floats_match(msg.left_feedforward_ks, expected.left_feedforward_ks)
-            and floats_match(msg.left_feedforward_kv, expected.left_feedforward_kv)
-            and floats_match(msg.left_feedback_kp, expected.left_feedback_kp)
-            and floats_match(msg.left_feedback_ki, expected.left_feedback_ki)
-            and floats_match(msg.left_feedback_kd, expected.left_feedback_kd)
-            and msg.left_max_feedback_pwm == expected.left_max_feedback_pwm
+            floats_match(
+                msg.right_feedforward_ks_forward,
+                expected.right_feedforward_ks_forward,
+            )
+            and floats_match(
+                msg.right_feedforward_ks_reverse,
+                expected.right_feedforward_ks_reverse,
+            )
+            and floats_match(
+                msg.right_feedforward_kv,
+                expected.right_feedforward_kv,
+            )
+            and floats_match(
+                msg.right_feedback_kp,
+                expected.right_feedback_kp,
+            )
+            and floats_match(
+                msg.right_feedback_ki,
+                expected.right_feedback_ki,
+            )
+            and floats_match(
+                msg.right_feedback_kd,
+                expected.right_feedback_kd,
+            )
+            and msg.right_max_pid_correction == expected.right_max_pid_correction
+            and floats_match(
+                msg.left_feedforward_ks_forward,
+                expected.left_feedforward_ks_forward,
+            )
+            and floats_match(
+                msg.left_feedforward_ks_reverse,
+                expected.left_feedforward_ks_reverse,
+            )
+            and floats_match(
+                msg.left_feedforward_kv,
+                expected.left_feedforward_kv,
+            )
+            and floats_match(
+                msg.left_feedback_kp,
+                expected.left_feedback_kp,
+            )
+            and floats_match(
+                msg.left_feedback_ki,
+                expected.left_feedback_ki,
+            )
+            and floats_match(
+                msg.left_feedback_kd,
+                expected.left_feedback_kd,
+            )
+            and msg.left_max_pid_correction == expected.left_max_pid_correction
             and msg.control_rate_hz == expected.control_rate_hz
         )
 
@@ -82,7 +126,8 @@ class DiffDriveManager:
             )
         else:
             self.node.get_logger().error(
-                "Differential drive parameter mismatch in hardware echo!"
+                "Differential drive parameter mismatch in hardware echo! "
+                f"expected={expected}, received={msg}"
             )
 
         return self.is_configured

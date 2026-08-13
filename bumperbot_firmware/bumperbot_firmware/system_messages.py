@@ -77,19 +77,23 @@ class DiffDriveVelocityData:
 
 @dataclass
 class DiffDriveConfigMsg:
-    right_feedforward_ks: float
+    # Right WheelConfig
+    right_feedforward_ks_forward: float
+    right_feedforward_ks_reverse: float
     right_feedforward_kv: float
     right_feedback_kp: float
     right_feedback_ki: float
     right_feedback_kd: float
-    right_max_feedback_pwm: int
+    right_max_pid_correction: int
 
-    left_feedforward_ks: float
+    # Left WheelConfig
+    left_feedforward_ks_forward: float
+    left_feedforward_ks_reverse: float
     left_feedforward_kv: float
     left_feedback_kp: float
     left_feedback_ki: float
     left_feedback_kd: float
-    left_max_feedback_pwm: int
+    left_max_pid_correction: int
 
     control_rate_hz: int
 
@@ -97,30 +101,48 @@ class DiffDriveConfigMsg:
     msg_id: MsgId = MsgId.DiffDriveConfig
 
     # Packed C++ payload:
-    #   2 * WheelConfig(5 * float + uint16) + uint16 control_rate_hz
-    #   = 2 * 22 + 2 = 46 payload bytes; header is 5 bytes.
-    PAYLOAD_FORMAT = "<fffffHfffffHH"
-    STRUCT_FORMAT = "<BBBHfffffHfffffHH"
+    #   WheelConfig =
+    #       6 * float
+    #       + uint16 max_pid_correction
+    #       = 26 bytes
+    #
+    #   DiffDriveConfigData =
+    #       right WheelConfig (26)
+    #       + left WheelConfig (26)
+    #       + uint16 control_rate_hz (2)
+    #       = 54 payload bytes
+    #
+    # Header is 5 bytes, therefore the complete frame is 59 bytes.
+    PAYLOAD_FORMAT = "<ffffffHffffffHH"
+    STRUCT_FORMAT = "<BBBHffffffHffffffHH"
     EXPECTED_SIZE = struct.calcsize(STRUCT_FORMAT)
 
     def serialize(self) -> bytes:
         payload_values = (
-            self.right_feedforward_ks,
+            self.right_feedforward_ks_forward,
+            self.right_feedforward_ks_reverse,
             self.right_feedforward_kv,
             self.right_feedback_kp,
             self.right_feedback_ki,
             self.right_feedback_kd,
-            self.right_max_feedback_pwm,
-            self.left_feedforward_ks,
+            self.right_max_pid_correction,
+            self.left_feedforward_ks_forward,
+            self.left_feedforward_ks_reverse,
             self.left_feedforward_kv,
             self.left_feedback_kp,
             self.left_feedback_ki,
             self.left_feedback_kd,
-            self.left_max_feedback_pwm,
+            self.left_max_pid_correction,
             self.control_rate_hz,
         )
+
         payload = struct.pack(self.PAYLOAD_FORMAT, *payload_values)
-        header_no_crc = struct.pack("<BBB", self.start_byte, self.msg_id, len(payload))
+        header_no_crc = struct.pack(
+            "<BBB",
+            self.start_byte,
+            self.msg_id,
+            len(payload),
+        )
         crc = calculate_crc16(header_no_crc + payload)
 
         return struct.pack(
@@ -136,24 +158,27 @@ class DiffDriveConfigMsg:
     def deserialize(cls, data: bytes):
         if len(data) != cls.EXPECTED_SIZE:
             raise ValueError(
-                f"DiffDriveConfigMsg length mismatch: expected {cls.EXPECTED_SIZE}, got {len(data)}"
+                f"DiffDriveConfigMsg length mismatch: "
+                f"expected {cls.EXPECTED_SIZE}, got {len(data)}"
             )
 
         unpacked = struct.unpack(cls.STRUCT_FORMAT, data)
         return cls(
-            right_feedforward_ks=unpacked[4],
-            right_feedforward_kv=unpacked[5],
-            right_feedback_kp=unpacked[6],
-            right_feedback_ki=unpacked[7],
-            right_feedback_kd=unpacked[8],
-            right_max_feedback_pwm=unpacked[9],
-            left_feedforward_ks=unpacked[10],
-            left_feedforward_kv=unpacked[11],
-            left_feedback_kp=unpacked[12],
-            left_feedback_ki=unpacked[13],
-            left_feedback_kd=unpacked[14],
-            left_max_feedback_pwm=unpacked[15],
-            control_rate_hz=unpacked[16],
+            right_feedforward_ks_forward=unpacked[4],
+            right_feedforward_ks_reverse=unpacked[5],
+            right_feedforward_kv=unpacked[6],
+            right_feedback_kp=unpacked[7],
+            right_feedback_ki=unpacked[8],
+            right_feedback_kd=unpacked[9],
+            right_max_pid_correction=unpacked[10],
+            left_feedforward_ks_forward=unpacked[11],
+            left_feedforward_ks_reverse=unpacked[12],
+            left_feedforward_kv=unpacked[13],
+            left_feedback_kp=unpacked[14],
+            left_feedback_ki=unpacked[15],
+            left_feedback_kd=unpacked[16],
+            left_max_pid_correction=unpacked[17],
+            control_rate_hz=unpacked[18],
         )
 
 
@@ -345,8 +370,8 @@ MESSAGE_DESERIALIZERS = {
 
 # --- Sanity Checks matching C++ static_asserts + 5-byte Header ---
 assert (
-    DiffDriveConfigMsg.EXPECTED_SIZE == 51
-), f"DiffDriveConfigMsg expected 51, got {DiffDriveConfigMsg.EXPECTED_SIZE}"
+    DiffDriveConfigMsg.EXPECTED_SIZE == 59
+), f"DiffDriveConfigMsg expected 59, got {DiffDriveConfigMsg.EXPECTED_SIZE}"
 assert (
     ImuConfigMsg.EXPECTED_SIZE == 8
 ), f"ImuConfigMsg expected 8, got {ImuConfigMsg.EXPECTED_SIZE}"

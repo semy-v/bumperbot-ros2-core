@@ -58,8 +58,9 @@ class WheelController {
     float max_pid_correction_pwm_{};
     float pid_correction_pwm_{};
 
-    float feedforward_static_friction_gain_{};
-    float feedforward_velocity_gain_{};
+    float feedforward_ks_forward_{};
+    float feedforward_ks_reverse_{};
+    float feedforward_kv_{};
     float feedforward_pwm_{};
 
     uint32_t brake_total_period_ms_{};

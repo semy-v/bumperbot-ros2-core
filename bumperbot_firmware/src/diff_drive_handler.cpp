@@ -31,16 +31,16 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
     }
 
     wheels_min_velocity_ =
-        getHwParam<double>(info.hardware_parameters, "wheels_min_velocity", 2.0, logger);
+        getHwParam<double>(info.hardware_parameters, "wheels_min_velocity", 3.0, logger);
 
     // Parse integer parameters into signed temporary values before converting
     // them to uint16_t. This prevents negative values from wrapping.
     const int control_rate_hz =
         getHwParam<int>(info.hardware_parameters, "wheels_control_rate_hz", 100, logger);
     const int right_max_feedback_pwm =
-        getHwParam<int>(info.hardware_parameters, "wheel_right_max_feedback_pwm", 100, logger);
+        getHwParam<int>(info.hardware_parameters, "wheel_right_max_feedback_pwm", 50, logger);
     const int left_max_feedback_pwm =
-        getHwParam<int>(info.hardware_parameters, "wheel_left_max_feedback_pwm", 100, logger);
+        getHwParam<int>(info.hardware_parameters, "wheel_left_max_feedback_pwm", 50, logger);
 
     constexpr int kMaxControlRateHz = static_cast<int>(std::numeric_limits<uint16_t>::max());
     if (control_rate_hz <= 0 || control_rate_hz > kMaxControlRateHz) {
@@ -60,12 +60,14 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
     config_data_.control_rate_hz = static_cast<uint16_t>(control_rate_hz);
 
     auto& right = config_data_.right_wheel;
-    right.feedforward_ks =
-        getHwParam<float>(info.hardware_parameters, "wheel_right_feedforward_ks", 13.25, logger);
+    right.feedforward_ks_forward = getHwParam<float>(
+        info.hardware_parameters, "wheel_right_feedforward_ks_forward", 65.83, logger);
+    right.feedforward_ks_reverse = getHwParam<float>(
+        info.hardware_parameters, "wheel_right_feedforward_ks_reverse", 54.33, logger);
     right.feedforward_kv =
-        getHwParam<float>(info.hardware_parameters, "wheel_right_feedforward_kv", 11.29, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_right_feedforward_kv", 10.39, logger);
     right.feedback_kp =
-        getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_kp", 0.0, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_kp", 10.0, logger);
     right.feedback_ki =
         getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_ki", 0.0, logger);
     right.feedback_kd =
@@ -73,12 +75,14 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
     right.max_feedback_pwm = static_cast<uint16_t>(right_max_feedback_pwm);
 
     auto& left = config_data_.left_wheel;
-    left.feedforward_ks =
-        getHwParam<float>(info.hardware_parameters, "wheel_left_feedforward_ks", 13.23, logger);
+    left.feedforward_ks_forward = getHwParam<float>(
+        info.hardware_parameters, "wheel_left_feedforward_ks_forward", 67.13, logger);
+    left.feedforward_ks_reverse = getHwParam<float>(
+        info.hardware_parameters, "wheel_left_feedforward_ks_reverse", 54.54, logger);
     left.feedforward_kv =
-        getHwParam<float>(info.hardware_parameters, "wheel_left_feedforward_kv", 10.93, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_left_feedforward_kv", 10.31, logger);
     left.feedback_kp =
-        getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_kp", 0.0, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_kp", 10.0, logger);
     left.feedback_ki =
         getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_ki", 0.0, logger);
     left.feedback_kd =
@@ -86,9 +90,10 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
     left.max_feedback_pwm = static_cast<uint16_t>(left_max_feedback_pwm);
 
     const auto wheel_values_are_finite = [](const WheelConfig& wheel) {
-        return std::isfinite(wheel.feedforward_ks) && std::isfinite(wheel.feedforward_kv) &&
-               std::isfinite(wheel.feedback_kp) && std::isfinite(wheel.feedback_ki) &&
-               std::isfinite(wheel.feedback_kd);
+        return std::isfinite(wheel.feedforward_ks_forward) &&
+               std::isfinite(wheel.feedforward_ks_reverse) &&
+               std::isfinite(wheel.feedforward_kv) && std::isfinite(wheel.feedback_kp) &&
+               std::isfinite(wheel.feedback_ki) && std::isfinite(wheel.feedback_kd);
     };
 
     if (!std::isfinite(wheels_min_velocity_) || wheels_min_velocity_ < 0.0 ||
@@ -106,15 +111,19 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
     RCLCPP_INFO(logger, "  - Control rate: %u Hz",
                 static_cast<unsigned>(config_data_.control_rate_hz));
     RCLCPP_INFO(logger,
-                "  - Right wheel -> FF {Ks: %.4f PWM, Kv: %.4f PWM/(rad/s)} | "
-                "PID {Kp: %.4f, Ki: %.4f, Kd: %.4f, max correction: %u PWM}",
-                right.feedforward_ks, right.feedforward_kv, right.feedback_kp, right.feedback_ki,
-                right.feedback_kd, static_cast<unsigned>(right.max_feedback_pwm));
+                "  - Right wheel -> FF {Ks_fwd: %.4f PWM, Ks_rev: %.4f PWM, "
+                "Kv: %.4f PWM/(rad/s)} | "
+                "PID {Kp: %.4f, Ki: %.4f, Kd: %.4f, max feedback: %u PWM}",
+                right.feedforward_ks_forward, right.feedforward_ks_reverse, right.feedforward_kv,
+                right.feedback_kp, right.feedback_ki, right.feedback_kd,
+                static_cast<unsigned>(right.max_feedback_pwm));
     RCLCPP_INFO(logger,
-                "  - Left wheel  -> FF {Ks: %.4f PWM, Kv: %.4f PWM/(rad/s)} | "
-                "PID {Kp: %.4f, Ki: %.4f, Kd: %.4f, max correction: %u PWM}",
-                left.feedforward_ks, left.feedforward_kv, left.feedback_kp, left.feedback_ki,
-                left.feedback_kd, static_cast<unsigned>(left.max_feedback_pwm));
+                "  - Left wheel  -> FF {Ks_fwd: %.4f PWM, Ks_rev: %.4f PWM, "
+                "Kv: %.4f PWM/(rad/s)} | "
+                "PID {Kp: %.4f, Ki: %.4f, Kd: %.4f, max feedback: %u PWM}",
+                left.feedforward_ks_forward, left.feedforward_ks_reverse, left.feedforward_kv,
+                left.feedback_kp, left.feedback_ki, left.feedback_kd,
+                static_cast<unsigned>(left.max_feedback_pwm));
 
     return true;
 }

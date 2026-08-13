@@ -31,22 +31,28 @@ class SerialTransceiverNode(LifecycleNode):
         # Config params matching C++ DiffDriveConfigData
         self.declare_parameter("control_rate_hz", 100)
 
-        self.declare_parameter("right_wheel.feedforward_ks", 13.25)
-        self.declare_parameter("right_wheel.feedforward_kv", 11.29)
+        self.declare_parameter("right_wheel.feedforward_ks_forward", 65.83)
+        self.declare_parameter("right_wheel.feedforward_ks_reverse", 54.33)
+        self.declare_parameter("right_wheel.feedforward_kv", 10.39)
         self.declare_parameter("right_wheel.feedback_kp", 0.0)
         self.declare_parameter("right_wheel.feedback_ki", 0.0)
         self.declare_parameter("right_wheel.feedback_kd", 0.0)
-        self.declare_parameter("right_wheel.max_feedback_pwm", 100)
+        self.declare_parameter("right_wheel.max_pid_correction", 50)
 
-        self.declare_parameter("left_wheel.feedforward_ks", 13.23)
-        self.declare_parameter("left_wheel.feedforward_kv", 10.93)
+        self.declare_parameter("left_wheel.feedforward_ks_forward", 67.13)
+        self.declare_parameter("left_wheel.feedforward_ks_reverse", 54.54)
+        self.declare_parameter("left_wheel.feedforward_kv", 10.31)
         self.declare_parameter("left_wheel.feedback_kp", 0.0)
         self.declare_parameter("left_wheel.feedback_ki", 0.0)
         self.declare_parameter("left_wheel.feedback_kd", 0.0)
-        self.declare_parameter("left_wheel.max_feedback_pwm", 100)
+        self.declare_parameter("left_wheel.max_pid_correction", 50)
 
         self.port_ = self.get_parameter("port").value
         self.baudrate_ = self.get_parameter("baudrate").value
+
+        # At this point all declared parameters already contain any overrides
+        # supplied through --params-file (serial_transceiver.yaml).
+        self.log_startup_parameters()
 
         # Instantiate Domain Managers
         self.diff_drive_manager_ = DiffDriveManager(self, self.send_serial_payload)
@@ -57,6 +63,40 @@ class SerialTransceiverNode(LifecycleNode):
         self.read_thread_ = None
         self.stop_read_thread_ = threading.Event()
         self.rx_buffer_ = bytearray()
+
+    def log_startup_parameters(self):
+        """Print every parameter consumed by serial_transceiver.yaml.
+
+        ROS 2 applies parameter-file overrides when each parameter is declared,
+        so get_parameter() here reports the effective value that this process
+        will use rather than merely the declaration default.
+        """
+        parameter_names = (
+            "port",
+            "baudrate",
+            "imu_frame_id",
+            "imu_calibration_ms",
+            "control_rate_hz",
+            "right_wheel.feedforward_ks_forward",
+            "right_wheel.feedforward_ks_reverse",
+            "right_wheel.feedforward_kv",
+            "right_wheel.feedback_kp",
+            "right_wheel.feedback_ki",
+            "right_wheel.feedback_kd",
+            "right_wheel.max_pid_correction",
+            "left_wheel.feedforward_ks_forward",
+            "left_wheel.feedforward_ks_reverse",
+            "left_wheel.feedforward_kv",
+            "left_wheel.feedback_kp",
+            "left_wheel.feedback_ki",
+            "left_wheel.feedback_kd",
+            "left_wheel.max_pid_correction",
+        )
+
+        logger = self.get_logger()
+        logger.info("Effective serial_transceiver parameters:")
+        for name in parameter_names:
+            logger.info(f"  {name}: {self.get_parameter(name).value}")
 
     def send_serial_payload(self, data: bytes):
         """Thread-safe serial transmission handler."""
