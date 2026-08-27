@@ -6,8 +6,8 @@
 #include <cstdint>
 #include <optional>
 
-#include "diff_drive/bl2418_encoder.hpp"
-#include "diff_drive/bl2418_motor.hpp"
+#include "diff_drive/bldc2430_encoder.hpp"
+#include "diff_drive/bldc2430_motor.hpp"
 #include "diff_drive/diff_drive_constants.hpp"
 #include "wheel_rotation_sequence_runner.hpp"
 
@@ -19,21 +19,21 @@ constexpr uint32_t kSerialBaudRate{115200U};
 // event-driven and is not limited by this period.
 constexpr uint32_t kVelocityUpdatePeriodMs{10U};
 
-BL2418Encoder left_revolution_encoder{kLeftMotorDirectionPin, kLeftMotorSpeedStatePin,
+BLDC2430Encoder left_revolution_encoder{kLeftMotorDirectionPin, kLeftMotorSpeedStatePin,
                                       kLeftMotorPulsePerRevolution, -kLeftMotorPulsePerRevolution,
                                       false};
 
-BL2418Encoder right_revolution_encoder{kRightMotorDirectionPin, kRightMotorSpeedStatePin,
+BLDC2430Encoder right_revolution_encoder{kRightMotorDirectionPin, kRightMotorSpeedStatePin,
                                        kRightMotorPulsePerRevolution,
                                        -kRightMotorPulsePerRevolution, true};
 
-BL2418Encoder left_velocity_encoder{kLeftMotorDirectionPin, kLeftMotorSpeedStatePin, false};
+BLDC2430Encoder left_velocity_encoder{kLeftMotorDirectionPin, kLeftMotorSpeedStatePin, false};
 
-BL2418Encoder right_velocity_encoder{kRightMotorDirectionPin, kRightMotorSpeedStatePin, true};
+BLDC2430Encoder right_velocity_encoder{kRightMotorDirectionPin, kRightMotorSpeedStatePin, true};
 
-BL2418Motor left_motor{kLeftMotorDirectionPin, kLeftMotorSpeedCommandPin, false};
+BLDC2430Motor left_motor{kLeftMotorDirectionPin, kLeftMotorSpeedCommandPin, false};
 
-BL2418Motor right_motor{kRightMotorDirectionPin, kRightMotorSpeedCommandPin, true};
+BLDC2430Motor right_motor{kRightMotorDirectionPin, kRightMotorSpeedCommandPin, true};
 
 constexpr std::array kWheelRotationSequence{
     WheelRotationStep{50, 3},   WheelRotationStep{100, 4}, WheelRotationStep{255, 15},
@@ -107,6 +107,9 @@ void setup() {
     // task handle before enabling each PCNT ISR.
     left_runner.begin(diagnostic_task);
     right_runner.begin(diagnostic_task);
+
+    // left_motor.setPwmSpeed(5);
+    // right_motor.setPwmSpeed(5);
 
     // Remove any stale notification left by setup/reset activity before starting
     // both sequences. Wheel-specific event counts are maintained independently.

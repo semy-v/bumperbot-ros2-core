@@ -11,8 +11,8 @@
 #include <cstdint>
 #include <optional>
 
-#include "diff_drive/bl2418_encoder.hpp"
-#include "diff_drive/bl2418_motor.hpp"
+#include "diff_drive/bldc2430_encoder.hpp"
+#include "diff_drive/bldc2430_motor.hpp"
 #include "diff_drive/wheel_velocity_estimator.hpp"
 
 struct WheelRotationStep {
@@ -32,9 +32,9 @@ class WheelRotationSequenceRunner {
         uint32_t excess_revolution_events;
     };
 
-    WheelRotationSequenceRunner(BL2418Encoder& revolution_encoder,
-                                BL2418Encoder& velocity_encoder,
-                                BL2418Motor& motor,
+    WheelRotationSequenceRunner(BLDC2430Encoder& revolution_encoder,
+                                BLDC2430Encoder& velocity_encoder,
+                                BLDC2430Motor& motor,
                                 uint32_t velocity_update_period_ms,
                                 float ticks_per_revolution,
                                 const WheelRotationSequence<StepsNum>& sequence)
@@ -204,9 +204,9 @@ class WheelRotationSequenceRunner {
 
     void stopMotor() { motor_.setPwmSpeed(0); }
 
-    BL2418Encoder& revolution_encoder_;
-    BL2418Encoder& velocity_encoder_;
-    BL2418Motor& motor_;
+    BLDC2430Encoder& revolution_encoder_;
+    BLDC2430Encoder& velocity_encoder_;
+    BLDC2430Motor& motor_;
     WheelVelocityEstimator velocity_estimator_;
 
     const uint32_t velocity_update_period_ms_;
