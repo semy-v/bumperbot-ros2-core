@@ -13,6 +13,7 @@
 
 #include "diff_drive/bldc2430_encoder.hpp"
 #include "diff_drive/bldc2430_motor.hpp"
+#include "diff_drive/bldc2430_pulse_counter.hpp"
 #include "diff_drive/wheel_velocity_estimator.hpp"
 
 struct WheelRotationStep {
@@ -23,6 +24,22 @@ struct WheelRotationStep {
 template <std::size_t StepsNum>
 using WheelRotationSequence = std::array<WheelRotationStep, StepsNum>;
 
+/**
+ * @brief Executes a fixed PWM/revolution diagnostic sequence for one wheel.
+ *
+ * Two deliberately different FG abstractions are used:
+ *
+ *  - full_revolution_counter_ is a BLDC2430PulseCounter configured by main()
+ *    with +/-falling_edges_per_wheel_revolution.  Its PCNT ISR therefore fires
+ *    once per complete output-wheel revolution and wakes this diagnostic task.
+ *
+ *  - velocity_encoder_ is a BLDC2430Encoder.  It is permanently configured
+ *    internally with +/-1 limits and publishes complete falling-edge FG periods
+ *    for reciprocal-period velocity estimation.
+ *
+ * Keeping these responsibilities separate prevents custom revolution-sized
+ * PCNT limits from changing the meaning of BLDC2430Encoder::delta_us.
+ */
 template <std::size_t StepsNum>
 class WheelRotationSequenceRunner {
  public:
@@ -32,16 +49,16 @@ class WheelRotationSequenceRunner {
         uint32_t excess_revolution_events;
     };
 
-    WheelRotationSequenceRunner(BLDC2430Encoder& revolution_encoder,
+    WheelRotationSequenceRunner(BLDC2430PulseCounter& full_revolution_counter,
                                 BLDC2430Encoder& velocity_encoder,
                                 BLDC2430Motor& motor,
                                 uint32_t velocity_update_period_ms,
-                                float ticks_per_revolution,
+                                float velocity_ticks_per_revolution,
                                 const WheelRotationSequence<StepsNum>& sequence)
-        : revolution_encoder_{revolution_encoder},
+        : full_revolution_counter_{full_revolution_counter},
           velocity_encoder_{velocity_encoder},
           motor_{motor},
-          velocity_estimator_{ticks_per_revolution},
+          velocity_estimator_{velocity_ticks_per_revolution},
           velocity_update_period_ms_{velocity_update_period_ms},
           sequence_{sequence} {
         static_assert(StepsNum > 0U, "The rotation sequence must contain at least one step");
@@ -50,10 +67,10 @@ class WheelRotationSequenceRunner {
     }
 
     /**
-     * Initializes the motor and both encoder instances.
+     * @brief Initializes motor, falling-edge velocity encoder, and full-revolution counter.
      *
-     * The task handle is stored before the revolution encoder interrupt is
-     * enabled, so the ISR always has a valid task to notify.
+     * event_task is stored before the full-revolution PCNT interrupt is enabled,
+     * so handleRevolutionEvent() always has a valid task to notify.
      */
     void begin(TaskHandle_t event_task) {
         if (initialized_) {
@@ -65,19 +82,19 @@ class WheelRotationSequenceRunner {
 
         motor_.begin();
         velocity_encoder_.begin();
-        revolution_encoder_.begin(&WheelRotationSequenceRunner::handleRevolutionEvent, this);
+        full_revolution_counter_.begin(&WheelRotationSequenceRunner::handleRevolutionEvent, this);
         velocity_estimator_.configure(velocity_update_period_ms_);
 
         stopMotor();
         initialized_ = true;
     }
 
-    /** Starts or restarts the configured sequence from its first step. */
+    /** @brief Starts or restarts the configured sequence from its first step. */
     void run() {
         configASSERT(initialized_);
 
         stopMotor();
-        revolution_encoder_.reset();
+        full_revolution_counter_.reset();
 
         pending_revolutions_.store(0U, std::memory_order_relaxed);
         completed_revolutions_ = 0U;
@@ -85,14 +102,15 @@ class WheelRotationSequenceRunner {
         current_velocity_ = 0.0F;
         last_step_result_.reset();
 
-        // The first velocity edge after restart may span the stopped interval.
+        // Ignore the first falling-edge interval after restart because it spans
+        // the stopped interval rather than one representative moving FG period.
         velocity_estimator_.reset(velocity_encoder_.getLastEdgeTimeUs(), true);
 
         running_ = true;
         motor_.setPwmSpeed(currentStep().pwm_speed);
     }
 
-    /** Stops the motor and terminates the active sequence. */
+    /** @brief Stops the motor and terminates the active sequence. */
     void stop() {
         stopMotor();
         pending_revolutions_.store(0U, std::memory_order_relaxed);
@@ -100,11 +118,10 @@ class WheelRotationSequenceRunner {
     }
 
     /**
-     * Processes all revolution events captured since the previous call.
+     * @brief Processes revolution-limit events accumulated by the ISR.
      *
-     * Call this immediately after the diagnostic task wakes from its ISR task
-     * notification. Motor direction/speed changes happen here in normal task
-     * context and therefore remain safe for Arduino/LEDC APIs.
+     * Call immediately after the task wakes.  Motor command changes remain in
+     * task context; the ISR only counts completed revolutions and notifies.
      */
     void processPendingRevolutionEvents() {
         const uint32_t pending = pending_revolutions_.exchange(0U, std::memory_order_relaxed);
@@ -121,14 +138,14 @@ class WheelRotationSequenceRunner {
             return;
         }
 
-        // Any excess event means the task could not react before an additional
-        // complete revolution occurred. Do not attribute it to the next step,
-        // because it was captured while the previous PWM command was active.
+        // Events captured beyond the requested revolution count still belong to
+        // the PWM command active before the task had a chance to react.  Report
+        // them instead of carrying them into the next sequence step.
         const uint32_t excess_events = pending - remaining;
         completeCurrentStep(excess_events);
     }
 
-    // Refreshes the reciprocal-period velocity estimate.
+    /** @brief Refreshes the reciprocal-period wheel velocity estimate. */
     void updateVelocity() {
         if (!running_) {
             current_velocity_ = 0.0F;
@@ -156,16 +173,31 @@ class WheelRotationSequenceRunner {
 
  private:
     /**
-     * PCNT ISR callback.
+     * @brief Full-revolution PCNT ISR callback.
      *
-     * Keep this path minimal: capture the event and wake the diagnostic task.
-     * No motor, Serial, estimator, iterator, or optional operation is allowed
-     * here.
+     * The BLDC2430PulseCounter is configured so each high/low limit corresponds
+     * to one complete wheel revolution.  Keep this ISR path minimal.
      */
     static void IRAM_ATTR handleRevolutionEvent(void* context) noexcept {
         auto* runner = static_cast<WheelRotationSequenceRunner*>(context);
 
-        runner->pending_revolutions_.fetch_add(1U, std::memory_order_relaxed);
+        // check that limit event status available
+        const auto opt_status = runner->full_revolution_counter_.getLimitEventStatus();
+        if (!opt_status) {
+            return;
+        }
+
+        // Normally one status bit is set.  Count both defensively if PCNT ever
+        // reports accumulated high- and low-limit status in one dispatch.
+        const auto& status = opt_status.value();
+        const uint32_t revolution_events =
+            (status.high_limit ? 1U : 0U) + (status.low_limit ? 1U : 0U);
+
+        if (revolution_events == 0U) {
+            return;
+        }
+
+        runner->pending_revolutions_.fetch_add(revolution_events, std::memory_order_relaxed);
 
         BaseType_t higher_priority_task_woken = pdFALSE;
         vTaskNotifyGiveFromISR(runner->event_task_, &higher_priority_task_woken);
@@ -186,8 +218,8 @@ class WheelRotationSequenceRunner {
         ++current_step_index_;
         completed_revolutions_ = 0U;
 
-        // Issue the next hardware command before preparing diagnostic output.
-        // This minimizes software reaction time at the revolution boundary.
+        // Issue the next hardware command before preparing diagnostic output so
+        // the revolution-boundary reaction latency remains minimal.
         if (current_step_index_ >= sequence_.size()) {
             stopMotor();
             running_ = false;
@@ -204,7 +236,7 @@ class WheelRotationSequenceRunner {
 
     void stopMotor() { motor_.setPwmSpeed(0); }
 
-    BLDC2430Encoder& revolution_encoder_;
+    BLDC2430PulseCounter& full_revolution_counter_;
     BLDC2430Encoder& velocity_encoder_;
     BLDC2430Motor& motor_;
     WheelVelocityEstimator velocity_estimator_;

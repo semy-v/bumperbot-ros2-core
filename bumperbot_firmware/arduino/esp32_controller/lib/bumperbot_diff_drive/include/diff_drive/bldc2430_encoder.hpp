@@ -1,88 +1,64 @@
 #ifndef BLDC2430_ENCODER_HPP
 #define BLDC2430_ENCODER_HPP
 
-#include <atomic>
-
 #include <Arduino.h>
-#include "driver/pcnt.h"
+
+#include <atomic>
+#include <cstdint>
+
+#include "diff_drive/bldc2430_pulse_counter.hpp"
 
 /**
- * @brief Reads the BLDC2430 motor feedback (FG) signal using the ESP32 PCNT
- *        peripheral.
+ * @brief Latest reciprocal-period timing snapshot produced by BLDC2430Encoder.
  *
- * The ESP32 Pulse Counter (PCNT) is a dedicated hardware peripheral that
- * counts input pulses independently of the CPU. Once configured, it monitors
- * the FG signal and updates the pulse count entirely in hardware without
- * requiring a GPIO interrupt or software polling for every pulse edge.
- *
- * Using the PCNT peripheral minimizes CPU utilization while providing reliable
- * pulse measurement even when the processor is busy executing other tasks,
- * such as motor control, communication, or ROS 2 message handling.
- *
- * The BLDC2430 motor controller generates an FG (Frequency Generator) pulse
- * train whose frequency is proportional to the wheel speed. This class
- * configures one ESP32 PCNT unit to accumulate FG signal transitions while
- * automatically tracking the wheel rotation direction.
- *
- * The motor direction command is connected to the PCNT control input. The
- * hardware uses this signal to determine whether encoder counts should be
- * accumulated in the positive or negative direction. The mapping between the
- * direction signal and the counting direction can optionally be inverted,
- * allowing identical software conventions to be used even when motors are
- * mounted as mirror images on opposite sides of a differential-drive robot.
- *
- * Both rising and falling edges of the FG signal are counted, effectively
- * doubling the available encoder resolution compared to counting a single
- * edge only.
- *
- * @note PCNT counts electrical signal transitions (edges), not logical pulses.
- *       With both rising and falling edges enabled, each FG pulse contributes
- *       two counter increments or decrements.
+ * edge_time_us is the timestamp of the most recent counted FG falling edge.
+ * delta_us is the interval between the two most recent falling edges and thus
+ * represents one complete FG period.  elapsed_us is the age of the latest edge
+ * at the time getEdgeData() is called.  direction follows the logical motor
+ * direction convention: +1 forward, -1 reverse.
  */
-
 struct EncoderEdgeData {
-    uint32_t edge_time_us{0};
-    uint32_t delta_us{0};
-    uint32_t elapsed_us{0};
+    uint32_t edge_time_us{0U};
+    uint32_t delta_us{0U};
+    uint32_t elapsed_us{0U};
     int8_t direction{1};
 };
 
+/**
+ * @brief BLDC2430 falling-edge timing encoder for wheel-velocity estimation.
+ *
+ * BLDC2430Encoder is intentionally a narrow velocity-measurement abstraction.
+ * It owns a BLDC2430PulseCounter permanently configured with PCNT limits +1/-1,
+ * so every FG falling edge generates one callback.  Custom PCNT limits are not
+ * exposed by this class; code that needs revolution-sized or other accumulated
+ * pulse events must use BLDC2430PulseCounter directly.
+ *
+ * Measuring falling-edge-to-falling-edge periods rather than alternating
+ * rising/falling half-periods removes sensitivity to FG duty-cycle asymmetry.
+ * The resulting delta_us is therefore suitable for the reciprocal-period
+ * WheelVelocityEstimator.
+ *
+ * The motor direction-command GPIO is also connected to PCNT.  PCNT uses that
+ * command level to choose the positive or negative limit, and the limit event
+ * is translated into direction +1 or -1.  This means direction is commanded
+ * direction, not an independent measurement of physical shaft direction; the
+ * BLDC2430 FG output is single-channel and cannot provide quadrature direction.
+ *
+ * The ISR publishes timestamp, period, and direction through lock-free 32-bit
+ * atomics protected by a sequence counter so getEdgeData() receives a coherent
+ * snapshot without disabling interrupts in the control task.
+ */
 class BLDC2430Encoder {
  public:
-    using PulseEdgeCallback = void (*)(void* context);
-
     /**
-     * @brief Constructs an encoder using the ESP32 hardware pulse counter.
-     *
-     * A dedicated PCNT unit is allocated for this encoder instance. The PCNT
-     * peripheral continuously counts FG signal edges in hardware after
-     * initialization, allowing the CPU to read accumulated counts only when
-     * required.
-     *
-     * @param direction_pin Arduino pin connected to the motor CW/CCW control
-     *        signal.
-     * @param speed_state_pin Arduino pin connected to the motor FG output.
-     * @param counter_h_limit Positive PCNT limit value.
-     * @param counter_l_limit Negative PCNT limit value.
-     * @param invert_logic Inverts the relationship between the motor direction
-     *        control signal and the PCNT counting direction. This allows both
-     *        left and right wheel encoders to report positive counts for forward
-     *        robot motion even when the motors are mounted in mirrored
-     *        orientations.
-     *
-     * @note The limit values can be configured to generate PCNT hardware events
-     *       after a predefined number of encoder counts, for example one complete
-     *       wheel revolution.
+     * @param direction_pin Arduino pin connected to the BLDC2430 direction input.
+     * @param speed_state_pin Arduino pin connected to the BLDC2430 FG output.
+     * @param invert_logic Inverts the direction-command/count-direction mapping
+     *        for a mirrored motor installation.
      */
-    BLDC2430Encoder(uint8_t direction_pin,
-                  uint8_t speed_state_pin,
-                  int16_t counter_h_limit,
-                  int16_t counter_l_limit,
-                  bool invert_logic);
-
     BLDC2430Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic);
 
-    ~BLDC2430Encoder();
+    ~BLDC2430Encoder() = default;
 
     BLDC2430Encoder(const BLDC2430Encoder&) = delete;
     BLDC2430Encoder(BLDC2430Encoder&&) = delete;
@@ -90,66 +66,55 @@ class BLDC2430Encoder {
     BLDC2430Encoder& operator=(BLDC2430Encoder&&) = delete;
 
     /**
-     * @brief Initializes the PCNT counter.
+     * @brief Starts falling-edge timing acquisition.
      *
-     * Configures the FG pin as an input, clears any previously accumulated
-     * pulse count, and starts the hardware pulse counter.
+     * The owned pulse counter installs BLDC2430Encoder::handlePulseEdgeEvent as
+     * its only callback.  No user callback is exposed by this class.
      */
-    void begin() { begin(&BLDC2430Encoder::handlePulseEdgeEvent, this); }
+    void begin();
 
-    void begin(PulseEdgeCallback callback, void* context);
-
+    /**
+     * @brief Clears PCNT state and the published timing snapshot.
+     *
+     * The first edge after reset spans reset->first-edge rather than a complete
+     * FG period.  Consumers that restart reciprocal-period estimation should
+     * therefore discard that first edge interval (WheelVelocityEstimator
+     * supports this with reset(consumed_edge_time_us, true)).
+     */
     void reset();
 
-    uint32_t getLastEdgeTimeUs() const {
+    [[nodiscard]] uint32_t getLastEdgeTimeUs() const {
         return last_edge_time_us_32_.load(std::memory_order_relaxed);
     }
 
-    EncoderEdgeData getEdgeData() const;
+    /** @brief Returns a coherent latest falling-edge timing snapshot. */
+    [[nodiscard]] EncoderEdgeData getEdgeData() const;
 
  private:
     struct alignas(4) MotionState {
-        uint32_t delta_us : 31 {0};  // Microsecond period between consecutive edges
-        uint32_t direction : 1 {1};  // 1 = Forward (+1), 0 = Reverse (-1)
+        // Full FG period in microseconds.  31 bits provide >35 minutes of range.
+        uint32_t delta_us : 31 {0U};
+
+        // Compact ISR representation: 1 = logical forward, 0 = logical reverse.
+        uint32_t direction : 1 {1U};
     };
 
+    static_assert(sizeof(MotionState) == sizeof(uint32_t),
+                  "MotionState must remain exactly one 32-bit word");
     static_assert(std::atomic<MotionState>::is_always_lock_free,
-                  "atomic MotionState has to be lock-free.");
+                  "atomic MotionState has to be lock-free");
     static_assert(std::atomic<uint32_t>::is_always_lock_free,
-                  "atomic uint32_t has to be lock-free.");
-
-    const pcnt_unit_t pcnt_unit_;
-    uint8_t speed_state_pin_;
-
-    std::atomic<uint32_t> seq_lock_{0};
-    std::atomic<uint32_t> last_edge_time_us_32_{0};
-    std::atomic<MotionState> motion_state_{};
+                  "atomic uint32_t has to be lock-free");
 
     static void IRAM_ATTR handlePulseEdgeEvent(void* context);
 
-    // Allocates a unique PCNT hardware unit for each encoder instance.
-    //
-    // The ESP32 contains a limited number of independent PCNT units. Each
-    // BLDC2430Encoder exclusively owns one unit for its lifetime. Construction
-    // fails with an assertion if more encoder instances are created than the
-    // hardware supports.
-    static pcnt_unit_t allocatePcntUnit() {
-        static pcnt_unit_t next_pcnt_unit{PCNT_UNIT_0};
-        assert(next_pcnt_unit < PCNT_UNIT_MAX);
+    // Fixed +/-1 limits are fundamental to this abstraction: one callback per
+    // FG falling edge gives one complete falling-edge-to-falling-edge period.
+    BLDC2430PulseCounter pulse_counter_;
 
-        const auto unit = next_pcnt_unit;
-        next_pcnt_unit = static_cast<pcnt_unit_t>(static_cast<int>(next_pcnt_unit) + 1);
-
-        return unit;
-    }
-
-    static void installIsrServiceOnce() {
-        static bool installed{false};
-        if (!installed) {
-            ESP_ERROR_CHECK(pcnt_isr_service_install(0));
-            installed = true;
-        }
-    }
+    std::atomic<uint32_t> seq_lock_{0U};
+    std::atomic<uint32_t> last_edge_time_us_32_{0U};
+    std::atomic<MotionState> motion_state_{};
 };
 
 #endif  // BLDC2430_ENCODER_HPP

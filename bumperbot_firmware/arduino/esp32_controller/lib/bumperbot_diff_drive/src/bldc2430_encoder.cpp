@@ -1,128 +1,51 @@
-#include <algorithm>
-
 #include "diff_drive/bldc2430_encoder.hpp"
 
-BLDC2430Encoder::BLDC2430Encoder(uint8_t direction_pin,
-                             uint8_t speed_state_pin,
-                             int16_t counter_h_limit,
-                             int16_t counter_l_limit,
-                             bool invert_logic)
-    : pcnt_unit_(allocatePcntUnit()), speed_state_pin_(speed_state_pin) {
-    pcnt_config_t config{// FG output from the BLDC2430 motor controller.
-                         .pulse_gpio_num = digitalPinToGPIONumber(speed_state_pin_),
-
-                         // Motor direction command used by the PCNT hardware to determine
-                         // whether the pulse count should be accumulated or reversed.
-                         .ctrl_gpio_num = digitalPinToGPIONumber(direction_pin),
-
-                         // Direction-dependent counting while the control signal is LOW.
-                         .lctrl_mode = invert_logic ? PCNT_MODE_REVERSE : PCNT_MODE_KEEP,
-
-                         // Direction-dependent counting while the control signal is HIGH.
-                         .hctrl_mode = invert_logic ? PCNT_MODE_KEEP : PCNT_MODE_REVERSE,
-
-                         // Ignore rising FG transition.
-                         .pos_mode = PCNT_COUNT_DIS,
-
-                         // Count every falling edge as well, doubling the effective encoder
-                         // resolution compared to counting a single edge only.
-                         .neg_mode = PCNT_COUNT_INC,
-
-                         .counter_h_lim = counter_h_limit,
-                         .counter_l_lim = counter_l_limit,
-
-                         .unit = pcnt_unit_,
-                         .channel = PCNT_CHANNEL_0};
-
-    ESP_ERROR_CHECK(pcnt_unit_config(&config));
-
-    // Enable the maximum hardware glitch filter.
-    // The filter rejects any pulse shorter than 1023 APB clock cycles
-    // (1023 / 80 MHz ≈ 12.8 µs). The BLDC2430 FG output has a measured
-    // minimum high/low pulse width of approximately 1090 µs at maximum
-    // motor speed, providing an ~85× safety margin while effectively
-    // suppressing narrow noise spikes on the FG line.
-    constexpr uint16_t kMaxFilterValue{1023};
-    ESP_ERROR_CHECK(pcnt_set_filter_value(pcnt_unit_, kMaxFilterValue));
-    ESP_ERROR_CHECK(pcnt_filter_enable(pcnt_unit_));
-}
+#include <algorithm>
 
 BLDC2430Encoder::BLDC2430Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic)
-    : BLDC2430Encoder(direction_pin, speed_state_pin, 1, -1, invert_logic) {}
+    : pulse_counter_{direction_pin, speed_state_pin, 1, -1, invert_logic} {}
 
-BLDC2430Encoder::~BLDC2430Encoder() {
-    // Prevent any new PCNT interrupt from being dispatched while the object
-    // is being destroyed.
-    std::ignore = pcnt_intr_disable(pcnt_unit_);
-
-    // Stop the hardware counter so it no longer processes FG transitions.
-    std::ignore = pcnt_counter_pause(pcnt_unit_);
-
-    // Disable the events that were enabled in begin().
-    std::ignore = pcnt_event_disable(pcnt_unit_, PCNT_EVT_L_LIM);
-    std::ignore = pcnt_event_disable(pcnt_unit_, PCNT_EVT_H_LIM);
-
-    // Remove only this encoder's ISR handler.
-    std::ignore = pcnt_isr_handler_remove(pcnt_unit_);
-
-    // Undo the filter configured by the constructor.
-    std::ignore = pcnt_filter_disable(pcnt_unit_);
-
-    // Disconnect this PCNT channel from the GPIO matrix.
-    std::ignore = pcnt_set_pin(pcnt_unit_, PCNT_CHANNEL_0, PCNT_PIN_NOT_USED, PCNT_PIN_NOT_USED);
-}
-
-void BLDC2430Encoder::begin(PulseEdgeCallback callback, void* context) {
-    // Configure the FG signal as a digital input before enabling the PCNT
-    // peripheral.
-    pinMode(speed_state_pin_, INPUT);
-
-    installIsrServiceOnce();
-
-    // Enable interrupt generation when the PCNT counter reaches the
-    // configured positive and negative limits.
-    ESP_ERROR_CHECK(pcnt_event_enable(pcnt_unit_, PCNT_EVT_L_LIM));
-    ESP_ERROR_CHECK(pcnt_event_enable(pcnt_unit_, PCNT_EVT_H_LIM));
-
-    // Associate the user callback with this PCNT unit.
-    ESP_ERROR_CHECK(pcnt_isr_handler_add(pcnt_unit_, callback, context));
-
-    // Reset and start counter
+void BLDC2430Encoder::begin() {
+    pulse_counter_.begin(&BLDC2430Encoder::handlePulseEdgeEvent, this);
     reset();
 }
 
 void BLDC2430Encoder::reset() {
-    ESP_ERROR_CHECK(pcnt_intr_disable(pcnt_unit_));
-    ESP_ERROR_CHECK(pcnt_counter_pause(pcnt_unit_));
-    ESP_ERROR_CHECK(pcnt_counter_clear(pcnt_unit_));
+    // Keep the PCNT ISR stopped while both the hardware count and software
+    // timing snapshot are reset.  This avoids publishing an edge in the middle
+    // of the reset transaction.
+    pulse_counter_.pauseAndDisableInterrupt();
+    pulse_counter_.clearCounter();
+
+    seq_lock_.fetch_add(1U, std::memory_order_acquire);  // even -> odd: writer active
+
     last_edge_time_us_32_.store(static_cast<uint32_t>(esp_timer_get_time()),
                                 std::memory_order_relaxed);
     motion_state_.store(MotionState{}, std::memory_order_relaxed);
-    ESP_ERROR_CHECK(pcnt_counter_resume(pcnt_unit_));
-    ESP_ERROR_CHECK(pcnt_intr_enable(pcnt_unit_));
+
+    seq_lock_.fetch_add(1U, std::memory_order_release);  // odd -> even: snapshot published
+
+    pulse_counter_.resumeAndEnableInterrupt();
 }
 
 EncoderEdgeData BLDC2430Encoder::getEdgeData() const {
-    uint32_t last_edge;
-    MotionState state;
+    uint32_t edge_time_us{0U};
+    MotionState state{};
 
     for (;;) {
         const uint32_t seq_before = seq_lock_.load(std::memory_order_acquire);
 
-        if (seq_before & 1) {
-            // A write is in progress. Spin and wait for the ISR to finish.
+        if ((seq_before & 1U) != 0U) {
+            // ISR/reset writer is updating the two-word snapshot.
             continue;
         }
 
-        // Force a memory fence so no subsequent reads move above this point
+        edge_time_us = last_edge_time_us_32_.load(std::memory_order_relaxed);
+        state = motion_state_.load(std::memory_order_relaxed);
+
+        // Keep payload reads before the final sequence validation.  If a writer
+        // overlapped either read, the changed sequence value forces a retry.
         std::atomic_thread_fence(std::memory_order_acquire);
-
-        last_edge = last_edge_time_us_32_.load(std::memory_order_acquire);
-        state = motion_state_.load(std::memory_order_acquire);
-
-        // Force a memory fence so no prior reads move below this point
-        std::atomic_thread_fence(std::memory_order_acquire);
-
         const uint32_t seq_after = seq_lock_.load(std::memory_order_relaxed);
 
         if (seq_before == seq_after) {
@@ -130,34 +53,49 @@ EncoderEdgeData BLDC2430Encoder::getEdgeData() const {
         }
     }
 
-    const uint32_t now_32 = static_cast<uint32_t>(esp_timer_get_time());
+    const uint32_t now_us = static_cast<uint32_t>(esp_timer_get_time());
 
-    return EncoderEdgeData{.edge_time_us = last_edge,
-                           .delta_us = state.delta_us,
-                           .elapsed_us = now_32 - last_edge,
-                           .direction = static_cast<int8_t>(state.direction ? 1 : -1)};
+    return EncoderEdgeData{
+        .edge_time_us = edge_time_us,
+        .delta_us = state.delta_us,
+        .elapsed_us = now_us - edge_time_us,
+        .direction = static_cast<int8_t>(state.direction != 0U ? 1 : -1),
+    };
 }
 
 /*static*/ void IRAM_ATTR BLDC2430Encoder::handlePulseEdgeEvent(void* context) {
     auto* encoder = static_cast<BLDC2430Encoder*>(context);
-    const uint32_t now_32 = static_cast<uint32_t>(esp_timer_get_time());
-    uint32_t status;
-    pcnt_get_event_status(encoder->pcnt_unit_, &status);
 
-    encoder->seq_lock_.fetch_add(1, std::memory_order_acquire);
+    // check that limit event status available
+    const auto opt_status = encoder->pulse_counter_.getLimitEventStatus();
+    if (!opt_status) {
+        return;
+    }
 
-    const uint32_t prev_32 = encoder->last_edge_time_us_32_.load(std::memory_order_relaxed);
+    // With fixed +1/-1 limits and one counted falling edge, exactly one limit
+    // should be reported. Reject an ambiguous status rather than publishing a
+    // direction that cannot be determined reliably.
+    const auto& status = opt_status.value();
+    if (status.high_limit == status.low_limit) {
+        return;
+    }
 
-    encoder->last_edge_time_us_32_.store(now_32, std::memory_order_relaxed);
-    const uint32_t delta = now_32 - prev_32;
-    const uint32_t clamped_delta = std::min(delta, uint32_t{0x7FFFFFFF});
+    const uint32_t now_us = static_cast<uint32_t>(esp_timer_get_time());
+
+    encoder->seq_lock_.fetch_add(1U, std::memory_order_acquire);  // even -> odd
+
+    const uint32_t previous_us = encoder->last_edge_time_us_32_.load(std::memory_order_relaxed);
+    encoder->last_edge_time_us_32_.store(now_us, std::memory_order_relaxed);
+
+    const uint32_t delta_us = now_us - previous_us;
+    constexpr uint32_t kMaximumStoredDeltaUs{0x7FFFFFFFU};
 
     const MotionState state{
-        .delta_us = clamped_delta,
-        .direction =
-            (status & PCNT_EVT_H_LIM ? 1u /*forward direction*/ : 0u /* reverse direction */)};
+        .delta_us = std::min(delta_us, kMaximumStoredDeltaUs),
+        .direction = status.high_limit ? 1U : 0U,
+    };
 
     encoder->motion_state_.store(state, std::memory_order_relaxed);
 
-    encoder->seq_lock_.fetch_add(1, std::memory_order_release);
+    encoder->seq_lock_.fetch_add(1U, std::memory_order_release);  // odd -> even
 }

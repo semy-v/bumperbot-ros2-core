@@ -8,6 +8,7 @@
 
 #include "diff_drive/bldc2430_encoder.hpp"
 #include "diff_drive/bldc2430_motor.hpp"
+#include "diff_drive/bldc2430_pulse_counter.hpp"
 #include "diff_drive/diff_drive_constants.hpp"
 #include "wheel_rotation_sequence_runner.hpp"
 
@@ -15,40 +16,75 @@ namespace {
 
 constexpr uint32_t kSerialBaudRate{115200U};
 
-// Velocity estimation still runs periodically. Revolution-boundary response is
-// event-driven and is not limited by this period.
+// Velocity estimation is refreshed periodically.  Full-revolution boundaries
+// are event-driven by the dedicated BLDC2430PulseCounter and are not limited by
+// this update period.
 constexpr uint32_t kVelocityUpdatePeriodMs{10U};
 
-BLDC2430Encoder left_revolution_encoder{kLeftMotorDirectionPin, kLeftMotorSpeedStatePin,
-                                      kLeftMotorPulsePerRevolution, -kLeftMotorPulsePerRevolution,
-                                      false};
+// Each full-revolution counter consumes the same FG and direction GPIOs as the
+// velocity encoder but owns a separate PCNT hardware unit.  Because only FG
+// falling edges are counted, these limits must be the empirically measured
+// FALLING-EDGE count per output-wheel revolution (306 for the current BLDC2430
+// 35:1 installation), not the previous rising+falling transition count of 612.
+BLDC2430PulseCounter left_full_revolution_counter{
+    kLeftMotorDirectionPin,
+    kLeftMotorSpeedStatePin,
+    kLeftMotorPulsePerRevolution,
+    -kLeftMotorPulsePerRevolution,
+    false,
+};
 
-BLDC2430Encoder right_revolution_encoder{kRightMotorDirectionPin, kRightMotorSpeedStatePin,
-                                       kRightMotorPulsePerRevolution,
-                                       -kRightMotorPulsePerRevolution, true};
+BLDC2430PulseCounter right_full_revolution_counter{
+    kRightMotorDirectionPin,
+    kRightMotorSpeedStatePin,
+    kRightMotorPulsePerRevolution,
+    -kRightMotorPulsePerRevolution,
+    true,
+};
 
-BLDC2430Encoder left_velocity_encoder{kLeftMotorDirectionPin, kLeftMotorSpeedStatePin, false};
+// Velocity encoders intentionally expose no custom PCNT limits.  Internally
+// they always use +1/-1 so every falling edge contributes one full FG period to
+// the reciprocal-period velocity estimator.
+BLDC2430Encoder left_velocity_encoder{
+    kLeftMotorDirectionPin,
+    kLeftMotorSpeedStatePin,
+    false,
+};
 
-BLDC2430Encoder right_velocity_encoder{kRightMotorDirectionPin, kRightMotorSpeedStatePin, true};
+BLDC2430Encoder right_velocity_encoder{
+    kRightMotorDirectionPin,
+    kRightMotorSpeedStatePin,
+    true,
+};
 
 BLDC2430Motor left_motor{kLeftMotorDirectionPin, kLeftMotorSpeedCommandPin, false};
-
 BLDC2430Motor right_motor{kRightMotorDirectionPin, kRightMotorSpeedCommandPin, true};
 
 constexpr std::array kWheelRotationSequence{
-    WheelRotationStep{50, 3},   WheelRotationStep{100, 4}, WheelRotationStep{255, 15},
-    WheelRotationStep{50, 3},   WheelRotationStep{-50, 3}, WheelRotationStep{-100, 4},
-    WheelRotationStep{-255, 15}, WheelRotationStep{-50, 3}, WheelRotationStep{50, 3}};
+    WheelRotationStep{50, 3},    WheelRotationStep{100, 4}, WheelRotationStep{255, 15},
+    WheelRotationStep{50, 3},    WheelRotationStep{-50, 3}, WheelRotationStep{-100, 4},
+    WheelRotationStep{-255, 15}, WheelRotationStep{-50, 3}, WheelRotationStep{50, 3},
+};
 
 using RotationRunner = WheelRotationSequenceRunner<kWheelRotationSequence.size()>;
 
 RotationRunner left_runner{
-    left_revolution_encoder, left_velocity_encoder,        left_motor,
-    kVelocityUpdatePeriodMs, kLeftMotorPulsePerRevolution, kWheelRotationSequence};
+    left_full_revolution_counter,
+    left_velocity_encoder,
+    left_motor,
+    kVelocityUpdatePeriodMs,
+    static_cast<float>(kLeftMotorPulsePerRevolution),
+    kWheelRotationSequence,
+};
 
 RotationRunner right_runner{
-    right_revolution_encoder, right_velocity_encoder,        right_motor,
-    kVelocityUpdatePeriodMs,  kRightMotorPulsePerRevolution, kWheelRotationSequence};
+    right_full_revolution_counter,
+    right_velocity_encoder,
+    right_motor,
+    kVelocityUpdatePeriodMs,
+    static_cast<float>(kRightMotorPulsePerRevolution),
+    kWheelRotationSequence,
+};
 
 bool completion_reported{false};
 
@@ -71,8 +107,8 @@ void printCompletedStep(const char* wheel_name,
 
 void processRunnerEventsImmediately() {
     // Process both event counters before velocity estimation or Serial output.
-    // A wheel with a pending full-revolution event receives its next PWM command
-    // with minimal task-context latency.
+    // A pending full-revolution event therefore receives the next PWM command
+    // with the minimum possible task-context latency.
     left_runner.processPendingRevolutionEvents();
     right_runner.processPendingRevolutionEvents();
 }
@@ -82,8 +118,6 @@ void processRunnerEventsImmediately() {
 void setup() {
     Serial.begin(kSerialBaudRate);
 
-    // Wait briefly for a development serial terminal, but continue when the
-    // diagnostic runs standalone from battery power.
     constexpr uint32_t kSerialWaitTimeoutMs{1000U};
     const uint32_t wait_start_ms = millis();
     while (!Serial && millis() - wait_start_ms < kSerialWaitTimeoutMs) {
@@ -92,27 +126,27 @@ void setup() {
 
     Serial.println();
     Serial.println("Bumperbot differential-drive rotation diagnostic");
-    Serial.printf("Steps: %u | velocity update period: %lu ms | revolution response: ISR wake-up\n",
-                  static_cast<unsigned>(kWheelRotationSequence.size()),
-                  static_cast<unsigned long>(kVelocityUpdatePeriodMs));
+    Serial.printf(
+        "Steps: %u | velocity update period: %lu ms | revolution response: PCNT ISR wake-up\n",
+        static_cast<unsigned>(kWheelRotationSequence.size()),
+        static_cast<unsigned long>(kVelocityUpdatePeriodMs));
+    Serial.printf("Falling-edge counts/revolution: left=%d right=%d\n",
+                  static_cast<int>(kLeftMotorPulsePerRevolution),
+                  static_cast<int>(kRightMotorPulsePerRevolution));
 
     const TaskHandle_t diagnostic_task = xTaskGetCurrentTaskHandle();
     configASSERT(diagnostic_task != nullptr);
 
-    // Enable power for both motors before starting the rotation sequence.
     pinMode(kMotorsPowerEnablePin, OUTPUT);
     digitalWrite(kMotorsPowerEnablePin, HIGH);
 
-    // Initialize both runners before either motor starts. begin() stores the
-    // task handle before enabling each PCNT ISR.
+    // begin() stores the task handle before enabling each full-revolution PCNT
+    // interrupt, so the ISR never notifies an uninitialized task handle.
     left_runner.begin(diagnostic_task);
     right_runner.begin(diagnostic_task);
 
-    // left_motor.setPwmSpeed(5);
-    // right_motor.setPwmSpeed(5);
-
-    // Remove any stale notification left by setup/reset activity before starting
-    // both sequences. Wheel-specific event counts are maintained independently.
+    // Remove any stale notification left by setup/reset activity.  Wheel-specific
+    // revolution counts are maintained independently inside the two runners.
     (void)ulTaskNotifyTake(pdTRUE, 0U);
 
     left_runner.run();
@@ -122,15 +156,12 @@ void setup() {
 }
 
 void loop() {
-    // Sleep until either encoder completes a revolution. If no event occurs,
-    // wake periodically to refresh velocity estimates and diagnostic output.
+    // Wake immediately when either full-revolution counter reaches its limit;
+    // otherwise wake periodically to refresh velocity and diagnostic output.
     (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kVelocityUpdatePeriodMs));
 
-    // This is intentionally the first work after wake-up.
     processRunnerEventsImmediately();
 
-    // Velocity estimation and logging are lower-priority diagnostic work and
-    // happen only after any required motor command transition has been issued.
     left_runner.updateVelocity();
     right_runner.updateVelocity();
 

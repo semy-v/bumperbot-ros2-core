@@ -6,165 +6,151 @@
 
 WheelVelocityEstimator::WheelVelocityEstimator(float ticks_per_rev)
     /*
-     * Angular displacement represented by one encoder edge:
+     * One EncoderEdgeData update now corresponds to the interval between two
+     * consecutive FG falling edges, i.e. one complete FG period.
+     *
+     * Angular displacement represented by one falling-edge event:
      *
      *      delta_theta = 2*pi / ticks_per_rev       [rad]
      *
-     * edge_data.delta_us is expressed in microseconds, so multiply by
-     * 1'000'000 us/s here. This allows update() to calculate:
+     * edge_data.delta_us is expressed in microseconds, so the 1'000'000 us/s
+     * factor is folded into the conversion constant. update() can therefore
+     * calculate the instantaneous velocity as:
      *
      *      omega = rad_per_tick_us_ / delta_us      [rad/s]
      *
-     * without converting the edge period to seconds every iteration.
+     * without converting the measured period to seconds on every update.
      */
-    : rad_per_tick_us_{
-          (2.0F * std::numbers::pi_v<float>) *
-          1'000'000.0F /
-          ticks_per_rev} {
-}
+    : rad_per_tick_us_{(2.0f * std::numbers::pi_v<float>)*1'000'000.0f / ticks_per_rev},
+      /*
+       * Convert the maximum plausible wheel velocity into the shortest valid
+       * falling-edge period for this particular ticks-per-revolution value:
+       *
+       *      T_min = delta_theta / omega_max
+       *
+       * Because rad_per_tick_us_ already includes the microsecond conversion:
+       *
+       *      T_min_us = rad_per_tick_us_ / omega_max
+       *
+       * Truncation is conservative here: it slightly lowers the rejection
+       * threshold and therefore leaves a small amount of additional high-speed
+       * headroom rather than rejecting a legitimate edge too early.
+       */
+      minimum_edge_period_us_{
+          static_cast<uint32_t>(rad_per_tick_us_ / kMaximumValidWheelVelocityRadSec)} {}
 
-void WheelVelocityEstimator::configure(
-    const uint32_t control_period_ms) {
-
+void WheelVelocityEstimator::configure(const uint32_t control_period_ms) {
     /*
-     * First-order low-pass filter cutoff.
+     * Nominal first-order low-pass cutoff for the reciprocal-period samples.
      *
-     * The reciprocal-period measurement can vary slightly because of
-     * encoder edge jitter, motor commutation, gearbox effects and wheel
-     * load changes. The EMA removes much of that high-frequency variation.
+     * Full-period falling-edge timing removes the former alternating
+     * rising-to-falling / falling-to-rising duty-cycle ripple, but smaller
+     * variations can still remain because of FG timing jitter, commutation,
+     * gearbox ripple and changing wheel load.
      */
-    constexpr float kCutoffHz{10.0F};
+    constexpr float kCutoffHz{10.0f};
 
-    // Convert controller update period from milliseconds to seconds.
-    const float dt =
-        static_cast<float>(control_period_ms) /
-        1000.0F;
+    // Convert the nominal controller update period from milliseconds to seconds.
+    const float dt = static_cast<float>(control_period_ms) / 1000.0f;
 
     /*
-     * Discrete-time coefficient corresponding approximately to a
-     * first-order continuous low-pass filter:
+     * EMA coefficient corresponding to a first-order continuous-time low-pass
+     * evaluated at the nominal controller period:
      *
      *      alpha = 1 - exp(-2*pi*f_c*dt)
      *
-     * The EMA update then becomes:
+     * and the sample update is:
      *
      *      filtered += alpha * (raw - filtered)
+     *
+     * Note that the EMA is actually changed only when update() observes a new
+     * FG falling edge. At low wheel speed the edge rate can be lower than the
+     * controller rate, so the effective filter update interval is then longer
+     * than dt.
      */
-    alpha_ =
-        1.0F -
-        std::exp(
-            -2.0F *
-            std::numbers::pi_v<float> *
-            kCutoffHz *
-            dt);
+    alpha_ = 1.0f - std::exp(-2.0f * std::numbers::pi_v<float> * kCutoffHz * dt);
 
     reset();
 }
 
-void WheelVelocityEstimator::reset(
-    uint32_t consumed_edge_time_us,
-    bool discard_next_edge) {
-
-    // Remove all previous filter history.
-    filtered_velocity_ = 0.0F;
+void WheelVelocityEstimator::reset(uint32_t consumed_edge_time_us, bool discard_next_edge) {
+    // Remove previous low-pass-filter history.
+    filtered_velocity_ = 0.0f;
 
     /*
-     * Treat this encoder edge as already consumed. An update containing
-     * the same timestamp will therefore not be processed again.
+     * Treat the supplied falling-edge timestamp as already consumed. A later
+     * update() call containing the same latest-value snapshot will therefore
+     * not process that old period again.
      */
-    last_processed_edge_time_us_ =
-        consumed_edge_time_us;
+    last_processed_edge_time_us_ = consumed_edge_time_us;
 
     /*
-     * Optionally discard the first future period measurement.
+     * Optionally discard the first future falling-edge period.
      *
-     * This is useful after a motor start or reversal because the first
-     * encoder delta may span the stopped/braking interval and would
-     * therefore produce an artificially low velocity.
+     * After motor start, stop or direction reversal, the first measured period
+     * can span time during which the wheel was stationary or changing state.
+     * Consuming that first edge without updating velocity makes the following
+     * edge-to-edge interval the first clean full-period measurement.
      */
-    discard_next_edge_ =
-        discard_next_edge;
+    discard_next_edge_ = discard_next_edge;
 }
 
-float WheelVelocityEstimator::update(
-    const EncoderEdgeData& edge_data) {
-
+float WheelVelocityEstimator::update(const EncoderEdgeData& edge_data) {
     /*
-     * If no encoder transition occurs for this long, consider the wheel
-     * stopped.
+     * Declare the wheel stopped when no new FG falling edge has arrived for
+     * this interval.
      *
-     * This is necessary for reciprocal-period estimation: when a wheel
-     * stops there is no "zero-speed edge" from which zero velocity could
-     * otherwise be calculated.
+     * Reciprocal-period estimation has no natural zero-speed sample: once the
+     * wheel stops, encoder events simply cease. The timeout therefore provides
+     * an explicit transition to zero velocity.
      *
-     * NOTE: The corresponding minimum observable nonzero velocity depends
-     * on ticks_per_rev, so the "~0.16 rad/s" value is not universal.
+     * The corresponding minimum observable non-zero velocity depends on
+     * ticks_per_rev because each falling edge represents 2*pi/ticks_per_rev
+     * radians of wheel rotation.
      */
     constexpr uint32_t kZeroVelocityTimeoutUs{
-        150'000};  // 150 ms
+        150'000};  // 150 ms without a falling edge => zero velocity
+
+    // Suppress negligible residual filter values around zero.
+    constexpr float kVelocityDeadbandRadSec{0.02F};
 
     /*
-     * Reject unrealistically short encoder periods.
-     *
-     * Such a sample can result from electrical noise/glitches or otherwise
-     * exceed the physically expected maximum wheel speed.
-     *
-     * The equivalent maximum angular velocity depends on ticks_per_rev.
+     * If the newest falling edge is too old, force zero velocity. This check is
+     * performed before looking for a new timestamp because a stopped wheel will
+     * repeatedly expose the same final EncoderEdgeData snapshot.
      */
-    constexpr uint32_t kMinimumEdgePeriodUs{
-        550};
-
-    // Suppress negligible numerical/filter residue around zero.
-    constexpr float kVelocityDeadbandRadSec{
-        0.02F};
-
-    /*
-     * Reciprocal-period estimators have an important special case:
-     * when the wheel stops, no further encoder edges are generated.
-     *
-     * edge_data.elapsed_us represents the time since the most recent
-     * hardware edge. If it exceeds the timeout, explicitly force the
-     * velocity estimate to zero.
-     */
-    if (edge_data.elapsed_us >
-        kZeroVelocityTimeoutUs) {
-
-        filtered_velocity_ = 0.0F;
+    if (edge_data.elapsed_us > kZeroVelocityTimeoutUs) {
+        filtered_velocity_ = 0.0f;
 
         /*
-         * Mark the last available edge as consumed. If update() is called
-         * repeatedly while stopped, that stale edge will not subsequently
-         * be interpreted as a new measurement.
+         * Mark the last available edge as consumed so repeated calls while the
+         * wheel remains stopped cannot later reinterpret that stale edge as a
+         * fresh period measurement.
          */
-        last_processed_edge_time_us_ =
-            edge_data.edge_time_us;
+        last_processed_edge_time_us_ = edge_data.edge_time_us;
 
         return filtered_velocity_;
     }
 
     /*
-     * EncoderEdgeData is a latest-value snapshot.
+     * EncoderEdgeData is a latest-value snapshot rather than a queue.
      *
-     * The control loop normally executes more frequently than new encoder
-     * edges arrive at low speed. An unchanged timestamp means there is no
-     * new period measurement, so retain the previous filtered estimate.
+     * At low speed the 100 Hz control loop may execute several times between
+     * consecutive FG falling edges. An unchanged timestamp means there is no
+     * new reciprocal-period observation, so preserve the current filtered
+     * velocity.
      */
-    if (edge_data.edge_time_us ==
-        last_processed_edge_time_us_) {
-
+    if (edge_data.edge_time_us == last_processed_edge_time_us_) {
         return filtered_velocity_;
     }
 
-    // Consume this edge exactly once.
-    last_processed_edge_time_us_ =
-        edge_data.edge_time_us;
+    // Consume this falling edge exactly once.
+    last_processed_edge_time_us_ = edge_data.edge_time_us;
 
     /*
-     * After selected resets (especially motor start/reversal), discard the
-     * first new edge.
-     *
-     * Its delta_us may contain a long stopped/braking interval and therefore
-     * does not represent the current rotating-wheel velocity.
+     * After selected resets, consume the first new falling edge only to
+     * establish fresh timing history. Its delta_us may include a stopped or
+     * braking interval and therefore may not describe the current wheel speed.
      */
     if (discard_next_edge_) {
         discard_next_edge_ = false;
@@ -172,68 +158,55 @@ float WheelVelocityEstimator::update(
     }
 
     /*
-     * Reject invalid edge periods.
+     * Reject physically implausible full-period measurements.
      *
      * Too short:
-     *   potentially a glitch or physically impossible speed.
+     *   delta_us <= minimum_edge_period_us_
+     *   implies |omega| >= kMaximumValidWheelVelocityRadSec and is treated as
+     *   a likely electrical glitch/spurious FG transition.
      *
      * Too long:
-     *   period is already in the region treated as zero/stalled motion and
-     *   would create a misleading very-low velocity estimate.
+     *   delta_us >= kZeroVelocityTimeoutUs lies in the same interval in which
+     *   the estimator declares the wheel stopped, so using it as a very small
+     *   non-zero velocity would be inconsistent with the timeout policy.
      */
-    if (edge_data.delta_us <=
-            kMinimumEdgePeriodUs ||
-        edge_data.delta_us >=
-            kZeroVelocityTimeoutUs) {
-
+    if (edge_data.delta_us <= minimum_edge_period_us_ ||
+        edge_data.delta_us >= kZeroVelocityTimeoutUs) {
         return filtered_velocity_;
     }
 
     /*
-     * Reciprocal-period velocity estimate.
+     * Reciprocal full-period velocity estimate.
      *
-     * For one encoder edge:
+     * Consecutive falling edges represent one encoder tick:
      *
      *      delta_theta = 2*pi / ticks_per_rev
      *
-     * Therefore:
+     * and therefore:
      *
      *      omega = delta_theta / delta_t
      *
-     * Since rad_per_tick_us_ already contains the 1e6 conversion:
-     *
-     *      raw_velocity =
-     *          rad_per_tick_us_ / delta_us
-     *
-     * The encoder-provided +/- direction converts the magnitude into a
-     * signed wheel angular velocity.
+     * rad_per_tick_us_ already contains the 1e6 conversion from microseconds
+     * to seconds, so the runtime calculation is only one division followed by
+     * application of the encoder-provided direction sign.
      */
-    const float raw_velocity =
-        (rad_per_tick_us_ /
-         static_cast<float>(edge_data.delta_us)) *
-        static_cast<float>(edge_data.direction);
+    const float raw_velocity = (rad_per_tick_us_ / static_cast<float>(edge_data.delta_us)) *
+                               static_cast<float>(edge_data.direction);
 
     /*
      * First-order exponential moving average:
      *
      *      y[k] = y[k-1] + alpha * (x[k] - y[k-1])
      *
-     * This avoids abrupt changes caused by individual encoder-period
-     * variations while preserving a lightweight implementation suitable
-     * for the real-time wheel-control loop.
+     * Full-period timing has already removed the dominant duty-cycle-induced
+     * half-period ripple; the EMA smooths the remaining edge-to-edge timing
+     * variation while retaining a lightweight real-time implementation.
      */
-    filtered_velocity_ +=
-        alpha_ *
-        (raw_velocity - filtered_velocity_);
+    filtered_velocity_ += alpha_ * (raw_velocity - filtered_velocity_);
 
-    /*
-     * Eliminate very small residual values caused by filtering or floating
-     * point noise.
-     */
-    if (std::fabs(filtered_velocity_) <
-        kVelocityDeadbandRadSec) {
-
-        filtered_velocity_ = 0.0F;
+    // Eliminate insignificant numerical/filter residue around zero.
+    if (std::fabs(filtered_velocity_) < kVelocityDeadbandRadSec) {
+        filtered_velocity_ = 0.0f;
     }
 
     return filtered_velocity_;

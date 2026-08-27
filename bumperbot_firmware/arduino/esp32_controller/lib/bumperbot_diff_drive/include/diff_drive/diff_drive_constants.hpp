@@ -3,9 +3,9 @@
 
 #include <cstdint>
 
-/// Number of FG pulses generated during one complete wheel revolution of the
-/// left motor and right motors. This value is determined experimentally and is used by the
-/// encoder driver to detect full wheel revolutions.
+/// Number of BLDC2430 FG FALLING edges measured during one complete
+/// left and right wheel revolution. Falling-edge-only counting is used by both
+/// reciprocal-period velocity measurement and the full-revolution diagnostic counter.
 inline constexpr int16_t kLeftMotorPulsePerRevolution{306};
 inline constexpr int16_t kRightMotorPulsePerRevolution{306};
 
