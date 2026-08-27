@@ -4,14 +4,10 @@
 #include <cstdint>
 
 /// Number of FG pulses generated during one complete wheel revolution of the
-/// left motor. This value is determined experimentally and is used by the
+/// left motor and right motors. This value is determined experimentally and is used by the
 /// encoder driver to detect full wheel revolutions.
-inline constexpr int16_t kLeftMotorPulsePerRevolution{245};
-
-/// Number of FG pulses generated during one complete wheel revolution of the
-/// right motor. This value is determined experimentally and compensates for
-/// manufacturing tolerances between the two motors.
-inline constexpr int16_t kRightMotorPulsePerRevolution{256};
+inline constexpr int16_t kLeftMotorPulsePerRevolution{306};
+inline constexpr int16_t kRightMotorPulsePerRevolution{306};
 
 /// Arduino pin connected to the left motor FG (speed feedback) output.
 inline constexpr uint8_t kLeftMotorSpeedStatePin{5};

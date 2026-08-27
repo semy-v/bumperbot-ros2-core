@@ -1,18 +1,18 @@
 #include <algorithm>
 #include <cstdint>
 
-#include "diff_drive/bl2418_motor.hpp"
+#include "diff_drive/bldc2430_motor.hpp"
 
-BL2418Motor::BL2418Motor(uint8_t direction_pin, uint8_t speed_control_pin, bool invert_logic)
+BLDC2430Motor::BLDC2430Motor(uint8_t direction_pin, uint8_t speed_control_pin, bool invert_logic)
     : direction_pin_(direction_pin),
       speed_control_pin_(speed_control_pin),
       speed_channel_{next_channel_++},
-      forward_direction_value_{static_cast<uint8_t>(invert_logic ? LOW : HIGH)},
-      reverse_direction_value_{static_cast<uint8_t>(invert_logic ? HIGH : LOW)} {
+      forward_direction_value_{static_cast<uint8_t>(invert_logic ? HIGH : LOW)},
+      reverse_direction_value_{static_cast<uint8_t>(invert_logic ? LOW : HIGH)} {
     assert(speed_channel_ < SOC_LEDC_CHANNEL_NUM);
 }
 
-void BL2418Motor::begin() {
+void BLDC2430Motor::begin() {
     pinMode(direction_pin_, OUTPUT);
 
     // Configure the default logical forward direction before enabling
@@ -24,7 +24,7 @@ void BL2418Motor::begin() {
     writeSpeedPwm(kMotorOffDuty);
 }
 
-void BL2418Motor::setPwmSpeed(int speed) {
+void BLDC2430Motor::setPwmSpeed(int speed) {
     if (speed >= 0) {
         digitalWrite(direction_pin_, forward_direction_value_);
     } else {

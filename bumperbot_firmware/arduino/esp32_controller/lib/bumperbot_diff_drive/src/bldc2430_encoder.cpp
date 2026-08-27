@@ -1,14 +1,14 @@
 #include <algorithm>
 
-#include "diff_drive/bl2418_encoder.hpp"
+#include "diff_drive/bldc2430_encoder.hpp"
 
-BL2418Encoder::BL2418Encoder(uint8_t direction_pin,
+BLDC2430Encoder::BLDC2430Encoder(uint8_t direction_pin,
                              uint8_t speed_state_pin,
                              int16_t counter_h_limit,
                              int16_t counter_l_limit,
                              bool invert_logic)
     : pcnt_unit_(allocatePcntUnit()), speed_state_pin_(speed_state_pin) {
-    pcnt_config_t config{// FG output from the BL2418 motor controller.
+    pcnt_config_t config{// FG output from the BLDC2430 motor controller.
                          .pulse_gpio_num = digitalPinToGPIONumber(speed_state_pin_),
 
                          // Motor direction command used by the PCNT hardware to determine
@@ -16,13 +16,13 @@ BL2418Encoder::BL2418Encoder(uint8_t direction_pin,
                          .ctrl_gpio_num = digitalPinToGPIONumber(direction_pin),
 
                          // Direction-dependent counting while the control signal is LOW.
-                         .lctrl_mode = invert_logic ? PCNT_MODE_KEEP : PCNT_MODE_REVERSE,
+                         .lctrl_mode = invert_logic ? PCNT_MODE_REVERSE : PCNT_MODE_KEEP,
 
                          // Direction-dependent counting while the control signal is HIGH.
-                         .hctrl_mode = invert_logic ? PCNT_MODE_REVERSE : PCNT_MODE_KEEP,
+                         .hctrl_mode = invert_logic ? PCNT_MODE_KEEP : PCNT_MODE_REVERSE,
 
-                         // Count every rising edge of the FG signal.
-                         .pos_mode = PCNT_COUNT_INC,
+                         // Ignore rising FG transition.
+                         .pos_mode = PCNT_COUNT_DIS,
 
                          // Count every falling edge as well, doubling the effective encoder
                          // resolution compared to counting a single edge only.
@@ -38,7 +38,7 @@ BL2418Encoder::BL2418Encoder(uint8_t direction_pin,
 
     // Enable the maximum hardware glitch filter.
     // The filter rejects any pulse shorter than 1023 APB clock cycles
-    // (1023 / 80 MHz ≈ 12.8 µs). The BL2418 FG output has a measured
+    // (1023 / 80 MHz ≈ 12.8 µs). The BLDC2430 FG output has a measured
     // minimum high/low pulse width of approximately 1090 µs at maximum
     // motor speed, providing an ~85× safety margin while effectively
     // suppressing narrow noise spikes on the FG line.
@@ -47,10 +47,10 @@ BL2418Encoder::BL2418Encoder(uint8_t direction_pin,
     ESP_ERROR_CHECK(pcnt_filter_enable(pcnt_unit_));
 }
 
-BL2418Encoder::BL2418Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic)
-    : BL2418Encoder(direction_pin, speed_state_pin, 1, -1, invert_logic) {}
+BLDC2430Encoder::BLDC2430Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic)
+    : BLDC2430Encoder(direction_pin, speed_state_pin, 1, -1, invert_logic) {}
 
-BL2418Encoder::~BL2418Encoder() {
+BLDC2430Encoder::~BLDC2430Encoder() {
     // Prevent any new PCNT interrupt from being dispatched while the object
     // is being destroyed.
     std::ignore = pcnt_intr_disable(pcnt_unit_);
@@ -72,7 +72,7 @@ BL2418Encoder::~BL2418Encoder() {
     std::ignore = pcnt_set_pin(pcnt_unit_, PCNT_CHANNEL_0, PCNT_PIN_NOT_USED, PCNT_PIN_NOT_USED);
 }
 
-void BL2418Encoder::begin(PulseEdgeCallback callback, void* context) {
+void BLDC2430Encoder::begin(PulseEdgeCallback callback, void* context) {
     // Configure the FG signal as a digital input before enabling the PCNT
     // peripheral.
     pinMode(speed_state_pin_, INPUT);
@@ -91,7 +91,7 @@ void BL2418Encoder::begin(PulseEdgeCallback callback, void* context) {
     reset();
 }
 
-void BL2418Encoder::reset() {
+void BLDC2430Encoder::reset() {
     ESP_ERROR_CHECK(pcnt_intr_disable(pcnt_unit_));
     ESP_ERROR_CHECK(pcnt_counter_pause(pcnt_unit_));
     ESP_ERROR_CHECK(pcnt_counter_clear(pcnt_unit_));
@@ -102,7 +102,7 @@ void BL2418Encoder::reset() {
     ESP_ERROR_CHECK(pcnt_intr_enable(pcnt_unit_));
 }
 
-EncoderEdgeData BL2418Encoder::getEdgeData() const {
+EncoderEdgeData BLDC2430Encoder::getEdgeData() const {
     uint32_t last_edge;
     MotionState state;
 
@@ -114,10 +114,16 @@ EncoderEdgeData BL2418Encoder::getEdgeData() const {
             continue;
         }
 
+        // Force a memory fence so no subsequent reads move above this point
+        std::atomic_thread_fence(std::memory_order_acquire);
+
         last_edge = last_edge_time_us_32_.load(std::memory_order_acquire);
         state = motion_state_.load(std::memory_order_acquire);
 
-        const uint32_t seq_after = seq_lock_.load(std::memory_order_acquire);
+        // Force a memory fence so no prior reads move below this point
+        std::atomic_thread_fence(std::memory_order_acquire);
+
+        const uint32_t seq_after = seq_lock_.load(std::memory_order_relaxed);
 
         if (seq_before == seq_after) {
             break;
@@ -132,16 +138,17 @@ EncoderEdgeData BL2418Encoder::getEdgeData() const {
                            .direction = static_cast<int8_t>(state.direction ? 1 : -1)};
 }
 
-/*static*/ void IRAM_ATTR BL2418Encoder::handlePulseEdgeEvent(void* context) {
-    auto* encoder = static_cast<BL2418Encoder*>(context);
+/*static*/ void IRAM_ATTR BLDC2430Encoder::handlePulseEdgeEvent(void* context) {
+    auto* encoder = static_cast<BLDC2430Encoder*>(context);
     const uint32_t now_32 = static_cast<uint32_t>(esp_timer_get_time());
     uint32_t status;
     pcnt_get_event_status(encoder->pcnt_unit_, &status);
 
     encoder->seq_lock_.fetch_add(1, std::memory_order_acquire);
 
-    const uint32_t prev_32 =
-        encoder->last_edge_time_us_32_.exchange(now_32, std::memory_order_relaxed);
+    const uint32_t prev_32 = encoder->last_edge_time_us_32_.load(std::memory_order_relaxed);
+
+    encoder->last_edge_time_us_32_.store(now_32, std::memory_order_relaxed);
     const uint32_t delta = now_32 - prev_32;
     const uint32_t clamped_delta = std::min(delta, uint32_t{0x7FFFFFFF});
 

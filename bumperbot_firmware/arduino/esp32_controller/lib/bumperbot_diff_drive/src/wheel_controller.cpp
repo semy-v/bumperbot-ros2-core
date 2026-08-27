@@ -20,7 +20,7 @@ void WheelController::configure(const uint32_t control_period_ms, const WheelCon
 
     pid_.SetTunings(wheel_config.feedback_kp, wheel_config.feedback_ki, wheel_config.feedback_kd);
     pid_.SetSampleTimeUs(control_period_ms * 1000U);
-    pid_.SetAntiWindupMode(QuickPID::iAwMode::iAwCondition);
+    pid_.SetAntiWindupMode(QuickPID::iAwMode::iAwClamp);
 
     feedforward_pwm_ = calculateFeedForwardPwm();
     updatePidOutputLimits();

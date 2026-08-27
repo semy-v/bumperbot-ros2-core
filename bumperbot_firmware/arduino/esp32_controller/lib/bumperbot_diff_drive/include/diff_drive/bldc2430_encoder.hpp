@@ -1,5 +1,5 @@
-#ifndef BL2418_ENCODER_HPP
-#define BL2418_ENCODER_HPP
+#ifndef BLDC2430_ENCODER_HPP
+#define BLDC2430_ENCODER_HPP
 
 #include <atomic>
 
@@ -7,7 +7,7 @@
 #include "driver/pcnt.h"
 
 /**
- * @brief Reads the BL2418 motor feedback (FG) signal using the ESP32 PCNT
+ * @brief Reads the BLDC2430 motor feedback (FG) signal using the ESP32 PCNT
  *        peripheral.
  *
  * The ESP32 Pulse Counter (PCNT) is a dedicated hardware peripheral that
@@ -19,7 +19,7 @@
  * pulse measurement even when the processor is busy executing other tasks,
  * such as motor control, communication, or ROS 2 message handling.
  *
- * The BL2418 motor controller generates an FG (Frequency Generator) pulse
+ * The BLDC2430 motor controller generates an FG (Frequency Generator) pulse
  * train whose frequency is proportional to the wheel speed. This class
  * configures one ESP32 PCNT unit to accumulate FG signal transitions while
  * automatically tracking the wheel rotation direction.
@@ -47,7 +47,7 @@ struct EncoderEdgeData {
     int8_t direction{1};
 };
 
-class BL2418Encoder {
+class BLDC2430Encoder {
  public:
     using PulseEdgeCallback = void (*)(void* context);
 
@@ -74,20 +74,20 @@ class BL2418Encoder {
      *       after a predefined number of encoder counts, for example one complete
      *       wheel revolution.
      */
-    BL2418Encoder(uint8_t direction_pin,
+    BLDC2430Encoder(uint8_t direction_pin,
                   uint8_t speed_state_pin,
                   int16_t counter_h_limit,
                   int16_t counter_l_limit,
                   bool invert_logic);
 
-    BL2418Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic);
+    BLDC2430Encoder(uint8_t direction_pin, uint8_t speed_state_pin, bool invert_logic);
 
-    ~BL2418Encoder();
+    ~BLDC2430Encoder();
 
-    BL2418Encoder(const BL2418Encoder&) = delete;
-    BL2418Encoder(BL2418Encoder&&) = delete;
-    BL2418Encoder& operator=(const BL2418Encoder&) = delete;
-    BL2418Encoder& operator=(BL2418Encoder&&) = delete;
+    BLDC2430Encoder(const BLDC2430Encoder&) = delete;
+    BLDC2430Encoder(BLDC2430Encoder&&) = delete;
+    BLDC2430Encoder& operator=(const BLDC2430Encoder&) = delete;
+    BLDC2430Encoder& operator=(BLDC2430Encoder&&) = delete;
 
     /**
      * @brief Initializes the PCNT counter.
@@ -95,7 +95,7 @@ class BL2418Encoder {
      * Configures the FG pin as an input, clears any previously accumulated
      * pulse count, and starts the hardware pulse counter.
      */
-    void begin() { begin(&BL2418Encoder::handlePulseEdgeEvent, this); }
+    void begin() { begin(&BLDC2430Encoder::handlePulseEdgeEvent, this); }
 
     void begin(PulseEdgeCallback callback, void* context);
 
@@ -130,7 +130,7 @@ class BL2418Encoder {
     // Allocates a unique PCNT hardware unit for each encoder instance.
     //
     // The ESP32 contains a limited number of independent PCNT units. Each
-    // BL2418Encoder exclusively owns one unit for its lifetime. Construction
+    // BLDC2430Encoder exclusively owns one unit for its lifetime. Construction
     // fails with an assertion if more encoder instances are created than the
     // hardware supports.
     static pcnt_unit_t allocatePcntUnit() {
@@ -152,4 +152,4 @@ class BL2418Encoder {
     }
 };
 
-#endif  // BL2418_ENCODER_HPP
+#endif  // BLDC2430_ENCODER_HPP

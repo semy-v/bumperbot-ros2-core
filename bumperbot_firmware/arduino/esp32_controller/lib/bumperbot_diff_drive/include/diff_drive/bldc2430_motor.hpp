@@ -1,15 +1,15 @@
-#ifndef BL2418_MOTOR_HPP
-#define BL2418_MOTOR_HPP
+#ifndef BLDC2430_MOTOR_HPP
+#define BLDC2430_MOTOR_HPP
 
 #include <Arduino.h>
 
-class BL2418Motor {
+class BLDC2430Motor {
  public:
     /**
-     * @brief Constructs a BL2418 motor controller.
+     * @brief Constructs a BLDC2430 motor controller.
      *
-     * @param direction_pin Arduino pin connected to the BL2418 CW/CCW input.
-     * @param speed_control_pin Arduino PWM-capable pin connected to the BL2418
+     * @param direction_pin Arduino pin connected to the BLDC2430 CW/CCW input.
+     * @param speed_control_pin Arduino PWM-capable pin connected to the BLDC2430
      *        PWM input.
      * @param invert_logic When set to true, swaps the logical forward and
      *        reverse directions. This is useful for differential-drive robots
@@ -19,14 +19,14 @@ class BL2418Motor {
      * always correspond to the robot's logical forward wheel rotation, regardless
      * of the physical motor orientation.
      */
-    BL2418Motor(uint8_t direction_pin, uint8_t speed_control_pin, bool invert_logic);
+    BLDC2430Motor(uint8_t direction_pin, uint8_t speed_control_pin, bool invert_logic);
 
-    ~BL2418Motor() = default;
+    ~BLDC2430Motor() = default;
 
-    BL2418Motor(const BL2418Motor&) = delete;
-    BL2418Motor(BL2418Motor&&) = delete;
-    BL2418Motor& operator=(const BL2418Motor&) = delete;
-    BL2418Motor& operator=(BL2418Motor&&) = delete;
+    BLDC2430Motor(const BLDC2430Motor&) = delete;
+    BLDC2430Motor(BLDC2430Motor&&) = delete;
+    BLDC2430Motor& operator=(const BLDC2430Motor&) = delete;
+    BLDC2430Motor& operator=(BLDC2430Motor&&) = delete;
 
     /**
      * @brief Initializes the motor controller.
@@ -34,7 +34,7 @@ class BL2418Motor {
      * Configures the direction GPIO, allocates and configures an ESP32 LEDC PWM
      * channel, and places the motor into the stopped state.
      *
-     * @note The BL2418 PWM input is active-low. A constant HIGH level disables the
+     * @note The BLDC2430 PWM input is active-low. A constant HIGH level disables the
      * motor output.
      */
     void begin();
@@ -49,7 +49,7 @@ class BL2418Motor {
      * @param speed Requested motor speed in the range [-255, 255]. Values outside
      * the supported range are saturated to the nearest valid value.
      *
-     * @note The BL2418 PWM input is active-low. Internally, the requested speed is
+     * @note The BLDC2430 PWM input is active-low. Internally, the requested speed is
      * converted into an inverted PWM duty cycle before being written to the ESP32
      * LEDC peripheral:
      * - speed = 0   → duty = 255 → motor OFF
@@ -61,7 +61,7 @@ class BL2418Motor {
     static constexpr int kMaxPwmSpeed{255};
     static constexpr int kMinPwmSpeed{0};
 
-    // Recommended PWM frequency from the BL2418 datasheet:
+    // Recommended PWM frequency from the BLDC2430 datasheet:
     // typical operating range 15-25 kHz (60 kHz maximum). A frequency of 25 kHz is selected to
     // minimize audible noise while remaining within the recommended range.
     static constexpr uint32_t kFrequency{25000};
@@ -93,4 +93,4 @@ class BL2418Motor {
     void writeSpeedPwm(const uint8_t duty) { ledcWrite(speed_channel_, duty); }
 };
 
-#endif  // BL2418_MOTOR_HPP
+#endif  // BLDC2430_MOTOR_HPP

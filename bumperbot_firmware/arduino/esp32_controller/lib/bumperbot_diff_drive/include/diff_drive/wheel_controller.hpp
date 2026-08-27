@@ -3,8 +3,8 @@
 
 #include <QuickPID.h>
 
-#include "diff_drive/bl2418_encoder.hpp"
-#include "diff_drive/bl2418_motor.hpp"
+#include "diff_drive/bldc2430_encoder.hpp"
+#include "diff_drive/bldc2430_motor.hpp"
 #include "diff_drive/wheel_velocity_estimator.hpp"
 #include "protocol/system_data.hpp"
 
@@ -45,8 +45,8 @@ class WheelController {
     static constexpr float kMaxPwm{255.0F};
     static constexpr float kMinPwm{-255.0F};
 
-    BL2418Motor motor_;
-    BL2418Encoder encoder_;
+    BLDC2430Motor motor_;
+    BLDC2430Encoder encoder_;
     WheelVelocityEstimator velocity_estimator_;
     QuickPID pid_;
 
@@ -80,7 +80,7 @@ class WheelController {
     int calculateMotorSpeedPwm() const;
 
     int calculateBrakePwm() const {
-        // the BL2418 motor driver brakes at the minimum PWM while still producing the FG encoder
+        // the BLDC2430 motor driver brakes at the minimum PWM while still producing the FG encoder
         // pulses
         // in contrast to the 0.0 pwm where the motor driver stops producing any FG encoder pulses
         constexpr float kBrakeDeadBandPwm{15.0};
