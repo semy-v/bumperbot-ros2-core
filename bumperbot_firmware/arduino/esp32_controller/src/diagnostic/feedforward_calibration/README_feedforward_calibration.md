@@ -1,22 +1,19 @@
 # BLDC2430 Directional Feed-Forward Calibration
 
-> GitHub-compatible LaTeX math is used throughout this README. Inline equations
-> use `$...$`; display equations use `$$...$$`.
-
 This diagnostic identifies the steady-state feed-forward model for the left and
 right BLDC2430 wheel assemblies with the fully assembled robot moving on its
 normal floor surface.
 
 The production model is
 
-$$
+```math
 \mathrm{PWM}_{ff}(\omega)=
 \begin{cases}
-K_{s,f}+K_v|\omega|, & \omega>0 \\[4pt]
+K_{s,f}+K_v\lvert\omega\rvert, & \omega>0 \\[4pt]
 0, & \omega=0 \\[4pt]
--\left(K_{s,r}+K_v|\omega|\right), & \omega<0
+-\left(K_{s,r}+K_v\lvert\omega\rvert\right), & \omega<0
 \end{cases}
-$$
+```
 
 where:
 
@@ -38,43 +35,43 @@ high-speed backward starts. Prephase data is never used by the regression.
 
 For every accepted test point:
 
-$$
-x_i=|\omega_i|,
+```math
+x_i=\lvert\omega_i\rvert,
 \qquad
-y_i=|\mathrm{PWM}_i|
-$$
+y_i=\lvert\mathrm{PWM}_i\rvert
+```
 
 Forward and reverse groups use separate intercepts and one common slope:
 
-$$
+```math
 y_{f,i}=K_{s,f}+K_vx_{f,i}
-$$
+```
 
-$$
+```math
 y_{r,i}=K_{s,r}+K_vx_{r,i}
-$$
+```
 
 The calibration identifies only
 
-$$
+```math
 K_{s,f},\qquad K_{s,r},\qquad K_v
-$$
+```
 
 It does **not** calculate or tune
 
-$$
+```math
 K_p,\qquad K_i,\qquad K_d
-$$
+```
 
 In the production `WheelController`:
 
-$$
+```math
 \mathrm{PWM}_{cmd}
 =
 \mathrm{PWM}_{ff}
 +
 \mathrm{PWM}_{pid}
-$$
+```
 
 where `max_feedback_pwm` limits the PID correction. Feed-forward supplies the
 nominal motor command; PID corrects residual error caused by load, battery
@@ -191,23 +188,23 @@ It is **calibration-only**:
 
 For each test point:
 
-$$
-|\mathrm{PWM}_{init}|
+```math
+\lvert\mathrm{PWM}_{init}\rvert
 =
 \min\left(
 \mathrm{PWM}_{init,max},
-|\mathrm{PWM}_{test}|
+\lvert\mathrm{PWM}_{test}\rvert
 \right)
-$$
+```
 
 and
 
-$$
+```math
 \mathrm{PWM}_{init}
 =
 \operatorname{sgn}(\mathrm{PWM}_{test})
-|\mathrm{PWM}_{init}|
-$$
+\lvert\mathrm{PWM}_{init}\rvert
+```
 
 With `initial_movement_pwm = 50`:
 
@@ -355,81 +352,81 @@ capture**. They remain part of the candidate sample and are evaluated afterward.
 
 For $N$ observations $\omega_i$:
 
-$$
+```math
 \bar{\omega}
 =
 \frac{1}{N}
 \sum_{i=1}^{N}\omega_i
-$$
+```
 
-The regression uses $|\bar{\omega}|$.
+The regression uses $\lvert\bar{\omega}\rvert$.
 
 ## Standard deviation
 
-$$
+```math
 \sigma_\omega^2
 =
 \frac{1}{N}
 \sum_{i=1}^{N}\omega_i^2
 -
 \bar{\omega}^2
-$$
+```
 
-$$
+```math
 \sigma_\omega
 =
 \sqrt{\max\left(0,\sigma_\omega^2\right)}
-$$
+```
 
 The normalized variation is:
 
-$$
+```math
 \sigma_{\mathrm{rel}}
 =
-\frac{\sigma_\omega}{|\bar{\omega}|}
-$$
+\frac{\sigma_\omega}{\lvert\bar{\omega}\rvert}
+```
 
 Current limit:
 
-$$
+```math
 \sigma_{\mathrm{rel}}\le0.10
-$$
+```
 
 ## Mean drift
 
 The capture is split into first and second halves:
 
-$$
+```math
 \bar{\omega}_1
 =
 \frac{1}{N_1}
 \sum_{i\in H_1}\omega_i
-$$
+```
 
-$$
+```math
 \bar{\omega}_2
 =
 \frac{1}{N_2}
 \sum_{i\in H_2}\omega_i
-$$
+```
 
 Relative drift is:
 
-$$
+```math
 d_{\mathrm{rel}}
 =
 \frac{
-|\bar{\omega}_2-\bar{\omega}_1|
+\lvert\bar{\omega}_2-\bar{\omega}_1\rvert
 }{
-|\bar{\omega}|
+\lvert\bar{\omega}\rvert
 }
-$$
+```
 
 Current limit:
 
-$$
+```math
 d_{\mathrm{rel}}\le0.05
-$$
+```
 
 Minimum and maximum captured velocity are also logged but are not direct
 acceptance criteria.
@@ -443,14 +440,8 @@ A point is accepted only if:
 1. all statistics are finite;
 2. test PWM is nonzero;
 3. sample count is at least `capture_sample_count`;
-4. mean speed satisfies
-
-   $$
-   |\bar{\omega}|
-   \ge
-   \mathrm{minimum\_regression\_velocity}
-   $$
-
+4. mean speed satisfies $\lvert\bar{\omega}\rvert \ge \omega_{min}$, where
+   `minimum_regression_velocity` supplies $\omega_{min}$;
 5. mean velocity sign matches test PWM sign;
 6. $\sigma_{\mathrm{rel}}$ does not exceed its configured limit;
 7. $d_{\mathrm{rel}}$ does not exceed its configured limit.
@@ -471,33 +462,33 @@ Rejected points are logged but do not abort the sweep.
 
 Accepted samples are grouped by direction:
 
-$$
+```math
 g\in\{f,r\}
-$$
+```
 
-$$
-x_{g,i}=|\omega_{g,i}|,
+```math
+x_{g,i}=\lvert\omega_{g,i}\rvert,
 \qquad
-y_{g,i}=|\mathrm{PWM}_{g,i}|
-$$
+y_{g,i}=\lvert\mathrm{PWM}_{g,i}\rvert
+```
 
 Group means:
 
-$$
+```math
 \bar{x}_g
 =
 \frac{1}{N_g}\sum_i x_{g,i}
-$$
+```
 
-$$
+```math
 \bar{y}_g
 =
 \frac{1}{N_g}\sum_i y_{g,i}
-$$
+```
 
 The common slope is fitted from within-group centered data:
 
-$$
+```math
 K_v
 =
 \frac{
@@ -512,21 +503,21 @@ K_v
 \sum_i
 (x_{g,i}-\bar{x}_g)^2
 }
-$$
+```
 
 The direction-specific intercepts are:
 
-$$
+```math
 K_{s,f}
 =
 \bar{y}_f-K_v\bar{x}_f
-$$
+```
 
-$$
+```math
 K_{s,r}
 =
 \bar{y}_r-K_v\bar{x}_r
-$$
+```
 
 At least `minimum_regression_points_per_direction` accepted samples are required
 for both directions. The current minimum is 5.
@@ -539,7 +530,7 @@ Regression fails for insufficient points/spread or invalid fitted coefficients.
 
 ## Coefficient of determination
 
-$$
+```math
 R^2
 =
 1-
@@ -548,7 +539,7 @@ R^2
 }{
 \displaystyle\sum_i(y_i-\bar{y})^2
 }
-$$
+```
 
 Warning threshold:
 
@@ -558,7 +549,7 @@ R² < 0.98
 
 ## PWM RMSE
 
-$$
+```math
 \mathrm{RMSE}_{PWM}
 =
 \sqrt{
@@ -566,7 +557,7 @@ $$
 \sum_{i=1}^{N}
 (y_i-\hat{y}_i)^2
 }
-$$
+```
 
 Warning threshold:
 
@@ -578,23 +569,23 @@ RMSE > 5 PWM
 
 At
 
-$$
-|\omega|=2\;\mathrm{rad/s}
-$$
+```math
+\lvert\omega\rvert=2\;\mathrm{rad/s}
+```
 
 the predicted magnitudes are:
 
-$$
-|\mathrm{PWM}_{2,f}|
+```math
+\lvert\mathrm{PWM}_{2,f}\rvert
 =
 K_{s,f}+2K_v
-$$
+```
 
-$$
-|\mathrm{PWM}_{2,r}|
+```math
+\lvert\mathrm{PWM}_{2,r}\rvert
 =
 K_{s,r}+2K_v
-$$
+```
 
 ---
 
@@ -663,14 +654,14 @@ Decrease it if the prephase itself causes excessive pitch.
 
 The effective value always remains bounded by:
 
-$$
-|\mathrm{PWM}_{init}|
+```math
+\lvert\mathrm{PWM}_{init}\rvert
 =
 \min\left(
 \mathrm{PWM}_{init,max},
-|\mathrm{PWM}_{test}|
+\lvert\mathrm{PWM}_{test}\rvert
 \right)
-$$
+```
 
 Increase `initial_movement_time_ms` if the caster or chassis needs more time to
 settle into normal rolling motion before the test PWM is applied.
