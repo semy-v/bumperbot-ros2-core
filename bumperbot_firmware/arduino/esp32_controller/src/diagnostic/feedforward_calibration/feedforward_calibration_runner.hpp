@@ -20,24 +20,36 @@
  *   forward: |PWM| = Ks_forward + Kv * |velocity|
  *   reverse: |PWM| = Ks_reverse + Kv * |velocity|
  *
- * The diagnostic deliberately does not use a startup/breakaway PWM and does
- * not precondition a wheel with a higher PWM command.  Every calibration point
- * is therefore applied directly from the stopped state, matching the intended
- * production behavior of a controller that contains only direction-specific
- * Ks and one shared Kv.
+ * The production controller deliberately contains no startup/breakaway PWM
+ * term.  The diagnostic nevertheless uses a calibration-only initial-motion
+ * prephase before every signed test point.  Its purpose is mechanical rather
+ * than model identification: it gets the assembled robot moving smoothly at a
+ * bounded, lower PWM before a potentially large test-PWM step.  This reduces
+ * the longitudinal launch impulse that can unload/lift the rear caster when the
+ * robot starts backward at high PWM.
+ *
+ * The prephase PWM always has the same sign as the test point and is limited to:
+ *
+ *   |initial PWM| = min(config.initial_movement_pwm, |test PWM|)
+ *
+ * Therefore a low-PWM point is never "preconditioned" with a PWM larger than
+ * the point being calibrated.  Prephase velocity is never stored in the
+ * regression and does not become a production startup parameter.
  *
  * Per signed PWM point the runner performs:
  *
- *   1. Apply the actual test PWM directly from rest.
- *   2. Wait a fixed settling interval while keeping the production velocity
- *      estimator updated.
- *   3. Capture velocity for a fixed observation interval.
- *   4. Validate the whole capture using:
+ *   1. Reset reciprocal-period estimator history for the new motion segment.
+ *   2. Apply the signed initial-movement PWM for a fixed configurable time,
+ *      continuously updating the production velocity estimator.
+ *   3. Switch to the exact test PWM.
+ *   4. Wait a fixed settling interval at the exact test PWM.
+ *   5. Capture velocity for a fixed observation interval.
+ *   6. Validate the whole capture using:
  *        - minimum mean speed,
  *        - direction agreement,
  *        - relative standard deviation sigma / |mean|,
  *        - relative drift between the first and second capture halves.
- *   5. Store only accepted points for the directional regression.
+ *   7. Store only accepted points for the directional regression.
  *
  * This intentionally avoids the previous "wait until one short window happens
  * to look quiet" behavior.  Periodic motor/gearbox ripple or residual FG timing
@@ -60,8 +72,20 @@ class FeedForwardCalibrationRunner {
         bool calibrate_forward{true};
         bool calibrate_reverse{true};
 
-        // Time at the actual test PWM before capture starts.  No higher-PWM
-        // preconditioning command is applied.
+        /*
+         * Calibration-only mechanical launch prephase.
+         *
+         * initial_movement_pwm is a positive magnitude; the test direction is
+         * applied automatically.  The effective magnitude is additionally
+         * clamped to |test PWM|, so this phase never drives a low-speed sample
+         * harder than the actual point being calibrated.
+         */
+        int initial_movement_pwm{50};
+        uint32_t initial_movement_time_ms{1000};
+
+        // Time at the exact test PWM after the prephase and before capture.
+        // This interval removes the velocity transient caused by changing from
+        // the initial-movement PWM to the requested calibration PWM.
         uint32_t settle_time_ms{1000};
 
         uint32_t capture_time_ms{2000};
@@ -144,6 +168,8 @@ class FeedForwardCalibrationRunner {
  private:
     enum class State : uint8_t {
         Idle,
+        ApplyInitialMovement,
+        InitialMovement,
         ApplyTestPWM,
         Settling,
         CaptureSample,
@@ -163,6 +189,8 @@ class FeedForwardCalibrationRunner {
     [[nodiscard]] bool configIsValid() const;
 
     void enterState(State next);
+    void updateApplyInitialMovement();
+    void updateInitialMovement();
     void updateApplyTestPWM();
     void updateSettling();
     void updateCaptureSample();
@@ -172,6 +200,9 @@ class FeedForwardCalibrationRunner {
     [[nodiscard]] bool selectNextSweepPoint();
 
     float measureVelocity();
+
+    // Signed same-direction launch command used only before the test PWM.
+    [[nodiscard]] int initialMovementPwm() const;
 
     void resetCaptureAccumulator();
     void accumulateCaptureSample(float velocity, uint32_t capture_elapsed_ms);

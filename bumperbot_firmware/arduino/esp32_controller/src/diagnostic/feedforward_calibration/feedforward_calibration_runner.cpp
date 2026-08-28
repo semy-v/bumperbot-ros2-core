@@ -22,9 +22,14 @@ FeedForwardCalibrationRunner::FeedForwardCalibrationRunner(const char* runner_na
 }
 
 void FeedForwardCalibrationRunner::begin() {
-    encoder_.begin();
+    /*
+     * BLDC2430Encoder uses the motor direction GPIO as the PCNT control input.
+     * Initialize the motor first so that signal has a deterministic level before
+     * the encoder enables pulse-counter interrupts.
+     */
     motor_.begin();
     motor_.setPwmSpeed(0);
+    encoder_.begin();
 
     estimator_.reset();
     resetRegression();
@@ -56,8 +61,9 @@ bool FeedForwardCalibrationRunner::configIsValid() const {
         return false;
     }
 
-    if (config_.settle_time_ms == 0 || config_.capture_time_ms == 0 ||
-        config_.capture_sample_count == 0 ||
+    if (config_.initial_movement_pwm <= 0 || config_.initial_movement_pwm > 255 ||
+        config_.initial_movement_time_ms == 0 || config_.settle_time_ms == 0 ||
+        config_.capture_time_ms == 0 || config_.capture_sample_count == 0 ||
         config_.max_capture_wait_ms < config_.capture_time_ms) {
         return false;
     }
@@ -89,13 +95,15 @@ bool FeedForwardCalibrationRunner::startCalibration() {
     resetRegression();
 
     current_pwm_ = config_.velocity_pwm_start;
-    enterState(State::ApplyTestPWM);
+    enterState(State::ApplyInitialMovement);
 
     printPrefix();
     logger_.printf(
-        "calibration start: |PWM|=%d..%d step=%d; direct-from-rest test; "
-        "settle=%lu ms; capture=%lu ms; model={Ks_forward,Ks_reverse,Kv}\n",
+        "calibration start: |PWM|=%d..%d step=%d; "
+        "initial movement<=%d PWM for %lu ms; settle=%lu ms; capture=%lu ms; "
+        "model={Ks_forward,Ks_reverse,Kv}\n",
         config_.velocity_pwm_start, config_.velocity_pwm_end, config_.velocity_pwm_step,
+        config_.initial_movement_pwm, static_cast<unsigned long>(config_.initial_movement_time_ms),
         static_cast<unsigned long>(config_.settle_time_ms),
         static_cast<unsigned long>(config_.capture_time_ms));
 
@@ -120,6 +128,8 @@ void FeedForwardCalibrationRunner::enterState(State next) {
 
     switch (next) {
         case State::Idle:
+        case State::ApplyInitialMovement:
+        case State::InitialMovement:
         case State::ApplyTestPWM:
         case State::Settling:
         case State::Finished:
@@ -174,6 +184,14 @@ void FeedForwardCalibrationRunner::update(uint32_t dt_ms) {
         case State::Failed:
             break;
 
+        case State::ApplyInitialMovement:
+            updateApplyInitialMovement();
+            break;
+
+        case State::InitialMovement:
+            updateInitialMovement();
+            break;
+
         case State::ApplyTestPWM:
             updateApplyTestPWM();
             break;
@@ -196,23 +214,64 @@ void FeedForwardCalibrationRunner::update(uint32_t dt_ms) {
     }
 }
 
-void FeedForwardCalibrationRunner::updateApplyTestPWM() {
+int FeedForwardCalibrationRunner::initialMovementPwm() const {
     /*
-     * Start every test with fresh estimator history.
-     *
-     * The encoder itself may still contain the last falling-edge timestamp from
-     * the previous/coasting wheel motion.  Mark that edge as consumed and
-     * discard the first new edge so the first reciprocal period used by the
-     * estimator is a full, fresh FG period generated at this test command.
+     * Never use a calibration-only launch PWM larger than the actual sample.
+     * At low points (for example test PWM 40 with configured initial PWM 50),
+     * the prephase simply uses the test PWM itself.
+     */
+    const int magnitude = std::min(config_.initial_movement_pwm, std::abs(current_pwm_));
+
+    return current_pwm_ < 0 ? -magnitude : magnitude;
+}
+
+void FeedForwardCalibrationRunner::updateApplyInitialMovement() {
+    /*
+     * Every signed point follows a shared motor-driver power cycle and starts
+     * from a stationary pause.  Synchronize the estimator to the latest stored
+     * edge and discard the first future edge period, because that interval can
+     * contain part of the preceding stopped state.
      */
     const EncoderEdgeData edge = encoder_.getEdgeData();
     estimator_.reset(edge.edge_time_us, true);
 
+    const int movement_pwm = initialMovementPwm();
+    motor_.setPwmSpeed(movement_pwm);
+
+    printPrefix();
+    logger_.printf("initial movement: %s PWM %d for %lu ms before TEST PWM %d\n",
+                   movement_pwm < 0 ? "reverse" : "forward", movement_pwm,
+                   static_cast<unsigned long>(config_.initial_movement_time_ms), current_pwm_);
+
+    enterState(State::InitialMovement);
+}
+
+void FeedForwardCalibrationRunner::updateInitialMovement() {
+    /*
+     * Keep the same production reciprocal-period estimator active throughout
+     * the launch prephase.  These measurements are intentionally not captured
+     * or added to the regression; the phase exists only to establish smooth,
+     * stable chassis motion before the exact calibration command is applied.
+     */
+    (void)measureVelocity();
+
+    if (state_time_ms_ >= config_.initial_movement_time_ms) {
+        enterState(State::ApplyTestPWM);
+    }
+}
+
+void FeedForwardCalibrationRunner::updateApplyTestPWM() {
+    /*
+     * Transition from the low-PWM initial motion to the exact PWM point being
+     * calibrated.  Do not reset the estimator here: continuous edge history is
+     * useful while the wheel changes speed, and the following settling interval
+     * ensures this transient is excluded from the actual capture.
+     */
     motor_.setPwmSpeed(current_pwm_);
 
     printPrefix();
-    logger_.printf("applying TEST %s PWM %d directly from rest\n",
-                   current_pwm_ < 0 ? "reverse" : "forward", current_pwm_);
+    logger_.printf("applying TEST %s PWM %d after initial movement PWM %d\n",
+                   current_pwm_ < 0 ? "reverse" : "forward", current_pwm_, initialMovementPwm());
 
     enterState(State::Settling);
 }
@@ -429,7 +488,7 @@ void FeedForwardCalibrationRunner::advanceSynchronizedStep() {
     }
 
     if (selectNextSweepPoint()) {
-        enterState(State::ApplyTestPWM);
+        enterState(State::ApplyInitialMovement);
         return;
     }
 
@@ -605,7 +664,9 @@ void FeedForwardCalibrationRunner::printResult() const {
     printPrefix();
     logger_.println("directional moving-state calibration complete");
     printPrefix();
-    logger_.println("model: one Kv with direction-specific Ks; no startup PWM; no preconditioning");
+    logger_.println(
+        "model: one Kv with direction-specific Ks; no production startup PWM; "
+        "initial-movement prephase excluded from regression");
 
     if (!result_) {
         printPrefix();

@@ -33,9 +33,21 @@ constexpr FeedForwardCalibrationRunner::Config kCalibrationConfig{
     .calibrate_forward = true,
     .calibrate_reverse = true,
 
-    // No high-PWM preconditioning is used with the BL2430.  The actual test PWM
-    // is applied directly from rest.  This makes the diagnostic consistent with
-    // the production model, which intentionally has no startup/breakaway term.
+    /*
+     * Calibration-only initial-motion prephase.
+     *
+     * Before every signed sample, both wheels first move in the test direction
+     * at up to 70 PWM for 1000 ms.  The runner uses
+     * min(initial_movement_pwm, |test PWM|), so low-PWM points are never driven
+     * harder than their actual test value.  This reduces the sudden longitudinal
+     * launch impulse that can lift the rear caster during high-speed backward
+     * starts.  The prephase is excluded from all sample/regression statistics.
+     */
+    .initial_movement_pwm = 70,
+    .initial_movement_time_ms = 1000,
+
+    // After switching from the initial movement to the exact test PWM, allow the
+    // wheel speed to settle before starting the unchanged statistical capture.
     .settle_time_ms = 1000,
 
     // Capture the full response and judge stability from this entire interval
@@ -229,13 +241,21 @@ void printTestInstructions() {
     console.println("Production model per wheel:");
     console.println("  forward: +[Ks_forward + Kv*|v|]");
     console.println("  reverse: -[Ks_reverse + Kv*|v|]");
-    console.println("  No startup/breakaway PWM and no calibration preconditioning.");
+    console.println("  No production startup/breakaway PWM term.");
+    console.println("  Calibration-only initial movement is excluded from the regression.");
     console.println();
     console.println("Calibration behavior:");
     console.println("  - both wheels are sampled simultaneously");
     console.println("  - +PWM then -PWM at every magnitude");
-    console.println("  - every test PWM is applied directly from rest");
-    console.println("  - fixed settling time, then a full 2-second capture");
+    console.printf("  - each point first moves in the test direction at <=%d PWM for %lu ms\n",
+                   kCalibrationConfig.initial_movement_pwm,
+                   static_cast<unsigned long>(kCalibrationConfig.initial_movement_time_ms));
+    console.println(
+        "  - initial PWM is clamped to |test PWM|; it is never a higher-PWM precondition");
+    console.println("  - then the exact test PWM is applied and allowed to settle");
+    console.printf("  - test-PWM settling time: %lu ms; capture time: %lu ms\n",
+                   static_cast<unsigned long>(kCalibrationConfig.settle_time_ms),
+                   static_cast<unsigned long>(kCalibrationConfig.capture_time_ms));
     console.println("  - capture acceptance uses relative sigma and first/second-half mean drift");
     console.println("  - there is no short-window steady-state wait/timeout gate");
     console.println("  - motor power is cycled between every signed sample");
@@ -247,7 +267,8 @@ void printTestInstructions() {
     console.println();
     console.println("Before starting:");
     console.println("  1. Put the assembled robot on its normal floor for production calibration.");
-    console.println("  2. Keep a clear travel area in both directions.");
+    console.println(
+        "  2. Keep a clear travel area: each point includes an initial motion prephase.");
     console.println("  3. Verify falling-edge pulses/revolution for both installed BL2430 motors.");
     console.println();
     console.println("Commands:");
