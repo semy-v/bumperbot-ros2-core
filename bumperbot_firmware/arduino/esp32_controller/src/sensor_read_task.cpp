@@ -15,7 +15,7 @@
 namespace {
 
 constexpr uint8_t kImuInterruptPin{A6};
-constexpr uint32_t kI2cClockHz{400'000U};
+constexpr uint32_t kI2cClockHz{200'000U};
 constexpr uint16_t kCalibrationSampleIntervalMs{10U};
 
 TaskHandle_t g_sensor_read_task_handle{nullptr};
@@ -136,7 +136,12 @@ void sensorReadTask(void* pvParameters) {
 
         // If multiple DATA_RDY notifications accumulated while this task was
         // delayed, read once. MPU6050 data registers contain the latest sample;
-        // repeated reads would only duplicate data rather than recover history.
-        publishImuState(shared_data, imu_sensor.readCalibrated());
+        // try repeate reads only if the previous read attempt failed.
+        constexpr size_t kImuReadRetryCount{3u};
+        auto opt_imu_data = imu_sensor.readCalibrated();
+        for(size_t i{}; !opt_imu_data && i < kImuReadRetryCount; ++i) {
+            opt_imu_data = imu_sensor.readCalibrated();
+        }
+        publishImuState(shared_data, opt_imu_data);
     }
 }
