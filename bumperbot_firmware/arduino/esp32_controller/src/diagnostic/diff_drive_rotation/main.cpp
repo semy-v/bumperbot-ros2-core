@@ -60,6 +60,8 @@ BLDC2430Encoder right_velocity_encoder{
 BLDC2430Motor left_motor{kLeftMotorDirectionPin, kLeftMotorSpeedCommandPin, false};
 BLDC2430Motor right_motor{kRightMotorDirectionPin, kRightMotorSpeedCommandPin, true};
 
+// constexpr std::array kWheelRotationSequence{WheelRotationStep{50, 1}};
+
 constexpr std::array kWheelRotationSequence{
     WheelRotationStep{50, 3},    WheelRotationStep{100, 4}, WheelRotationStep{255, 15},
     WheelRotationStep{50, 3},    WheelRotationStep{-50, 3}, WheelRotationStep{-100, 4},

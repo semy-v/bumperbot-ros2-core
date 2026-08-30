@@ -37,13 +37,13 @@ constexpr FeedForwardCalibrationRunner::Config kCalibrationConfig{
      * Calibration-only initial-motion prephase.
      *
      * Before every signed sample, both wheels first move in the test direction
-     * at up to 70 PWM for 1000 ms.  The runner uses
+     * at up to 50 PWM for 1000 ms.  The runner uses
      * min(initial_movement_pwm, |test PWM|), so low-PWM points are never driven
      * harder than their actual test value.  This reduces the sudden longitudinal
      * launch impulse that can lift the rear caster during high-speed backward
      * starts.  The prephase is excluded from all sample/regression statistics.
      */
-    .initial_movement_pwm = 70,
+    .initial_movement_pwm = 50,
     .initial_movement_time_ms = 1000,
 
     // After switching from the initial movement to the exact test PWM, allow the
