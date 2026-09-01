@@ -61,30 +61,30 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
 
     auto& right = config_data_.right_wheel;
     right.feedforward_ks_forward = getHwParam<float>(
-        info.hardware_parameters, "wheel_right_feedforward_ks_forward", 65.83, logger);
+        info.hardware_parameters, "wheel_right_feedforward_ks_forward", 17.34, logger);
     right.feedforward_ks_reverse = getHwParam<float>(
-        info.hardware_parameters, "wheel_right_feedforward_ks_reverse", 54.33, logger);
+        info.hardware_parameters, "wheel_right_feedforward_ks_reverse", 15.26, logger);
     right.feedforward_kv =
-        getHwParam<float>(info.hardware_parameters, "wheel_right_feedforward_kv", 10.39, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_right_feedforward_kv", 14.72, logger);
     right.feedback_kp =
-        getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_kp", 10.0, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_kp", 3.0, logger);
     right.feedback_ki =
-        getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_ki", 0.0, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_ki", 27.0, logger);
     right.feedback_kd =
         getHwParam<float>(info.hardware_parameters, "wheel_right_feedback_kd", 0.0, logger);
     right.max_feedback_pwm = static_cast<uint16_t>(right_max_feedback_pwm);
 
     auto& left = config_data_.left_wheel;
     left.feedforward_ks_forward = getHwParam<float>(
-        info.hardware_parameters, "wheel_left_feedforward_ks_forward", 67.13, logger);
+        info.hardware_parameters, "wheel_left_feedforward_ks_forward", 17.86, logger);
     left.feedforward_ks_reverse = getHwParam<float>(
-        info.hardware_parameters, "wheel_left_feedforward_ks_reverse", 54.54, logger);
+        info.hardware_parameters, "wheel_left_feedforward_ks_reverse", 15.68, logger);
     left.feedforward_kv =
-        getHwParam<float>(info.hardware_parameters, "wheel_left_feedforward_kv", 10.31, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_left_feedforward_kv", 14.26, logger);
     left.feedback_kp =
-        getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_kp", 10.0, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_kp", 3.0, logger);
     left.feedback_ki =
-        getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_ki", 0.0, logger);
+        getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_ki", 25.0, logger);
     left.feedback_kd =
         getHwParam<float>(info.hardware_parameters, "wheel_left_feedback_kd", 0.0, logger);
     left.max_feedback_pwm = static_cast<uint16_t>(left_max_feedback_pwm);
