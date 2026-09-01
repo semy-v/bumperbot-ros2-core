@@ -31,19 +31,19 @@ class SerialTransceiverNode(LifecycleNode):
         # Config params matching C++ DiffDriveConfigData
         self.declare_parameter("control_rate_hz", 100)
 
-        self.declare_parameter("right_wheel.feedforward_ks_forward", 65.83)
-        self.declare_parameter("right_wheel.feedforward_ks_reverse", 54.33)
-        self.declare_parameter("right_wheel.feedforward_kv", 10.39)
-        self.declare_parameter("right_wheel.feedback_kp", 0.0)
-        self.declare_parameter("right_wheel.feedback_ki", 0.0)
+        self.declare_parameter("right_wheel.feedforward_ks_forward", 21.85)
+        self.declare_parameter("right_wheel.feedforward_ks_reverse", 16.95)
+        self.declare_parameter("right_wheel.feedforward_kv", 14.17)
+        self.declare_parameter("right_wheel.feedback_kp", 3.5)
+        self.declare_parameter("right_wheel.feedback_ki", 13.5)
         self.declare_parameter("right_wheel.feedback_kd", 0.0)
         self.declare_parameter("right_wheel.max_pid_correction", 50)
 
-        self.declare_parameter("left_wheel.feedforward_ks_forward", 67.13)
-        self.declare_parameter("left_wheel.feedforward_ks_reverse", 54.54)
-        self.declare_parameter("left_wheel.feedforward_kv", 10.31)
-        self.declare_parameter("left_wheel.feedback_kp", 0.0)
-        self.declare_parameter("left_wheel.feedback_ki", 0.0)
+        self.declare_parameter("left_wheel.feedforward_ks_forward", 21.79)
+        self.declare_parameter("left_wheel.feedforward_ks_reverse", 16.44)
+        self.declare_parameter("left_wheel.feedforward_kv", 13.77)
+        self.declare_parameter("left_wheel.feedback_kp", 3.0)
+        self.declare_parameter("left_wheel.feedback_ki", 12.0)
         self.declare_parameter("left_wheel.feedback_kd", 0.0)
         self.declare_parameter("left_wheel.max_pid_correction", 50)
 
@@ -179,10 +179,19 @@ class SerialTransceiverNode(LifecycleNode):
         self.read_thread_.start()
 
         try:
-            self.set_read_thread_realtime_priority()
+            self.set_thread_realtime_priority(threading.get_native_id(), "SERIAL WRITE")
         except (OSError, ValueError, RuntimeError) as e:
             self.get_logger().warn(
-                f"Failed to configure serial read thread for SCHED_FIFO: {e}"
+                f"Failed to configure SERIAL WRITE thread for SCHED_FIFO: {e}"
+            )
+
+        try:
+            self.set_thread_realtime_priority(
+                self.read_thread_.native_id, "SERIAL READ"
+            )
+        except (OSError, ValueError, RuntimeError) as e:
+            self.get_logger().warn(
+                f"Failed to configure SERIAL READ thread for SCHED_FIFO: {e}"
             )
 
         self.get_logger().info("Transceiver node activated successfully.")
@@ -208,21 +217,19 @@ class SerialTransceiverNode(LifecycleNode):
             self.transceiver_.close()
         return TransitionCallbackReturn.SUCCESS
 
-    def set_read_thread_realtime_priority(self):
-        """Configure only the serial receive thread as Linux SCHED_FIFO."""
-        if self.read_thread_ is None or self.read_thread_.native_id is None:
-            raise RuntimeError("Serial read thread has no native Linux thread ID")
+    def set_thread_realtime_priority(self, thread_id, thread_name):
+        """Configure the thread as Linux SCHED_FIFO."""
+        if thread_id is None:
+            raise RuntimeError("{thread_name} thread has no native Linux thread ID")
 
         priority = 50
         min_priority = os.sched_get_priority_min(os.SCHED_FIFO)
         max_priority = os.sched_get_priority_max(os.SCHED_FIFO)
         if not min_priority <= priority <= max_priority:
             raise ValueError(
-                f"read_thread_priority={priority} is outside the SCHED_FIFO "
+                f"thread_priority={priority} is outside the SCHED_FIFO "
                 f"range [{min_priority}, {max_priority}]"
             )
-
-        thread_id = self.read_thread_.native_id
 
         os.sched_setscheduler(
             thread_id,
@@ -235,11 +242,11 @@ class SerialTransceiverNode(LifecycleNode):
 
         if actual_policy != os.SCHED_FIFO or actual_priority != priority:
             raise RuntimeError(
-                "Serial read thread real-time scheduling verification failed"
+                "{thread_name} thread real-time scheduling verification failed"
             )
 
         self.get_logger().info(
-            f"Serial read thread configured: SCHED_FIFO priority {actual_priority}, "
+            f"{thread_name} thread configured: SCHED_FIFO priority {actual_priority}, "
             f"TID {thread_id}"
         )
 
