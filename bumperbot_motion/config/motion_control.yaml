@@ -17,3 +17,8 @@ motion_control_server:
 
       near_goal_region: 0.2
       near_goal_linear_velocity : 0.05
+
+    square_roundtrip:
+      vertex_tolerance: 0.03
+      start_tolerance: 0.10
+      path_resolution: 10.0
