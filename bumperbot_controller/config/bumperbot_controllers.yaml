@@ -120,9 +120,9 @@ imu_sensor_broadcaster:
     # The values were selected based on the expected noise characteristics of
     # the MPU6050 after calibration.
     static_covariance_angular_velocity:
-      [0.005, 0.0,   0.0,
-       0.0,   0.005, 0.0,
-       0.0,   0.0,   0.005]
+      [0.01, 0.0,   0.0,
+       0.0,   0.01, 0.0,
+       0.0,   0.0,   0.01]
 
     # Linear acceleration covariance matrix ((m/s²)²).
     #
@@ -172,7 +172,7 @@ diff_drive_controller:
       [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
 
     twist_covariance_diagonal:
-      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
+      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-1]
 
     # Physical robot dimensions.
     #
