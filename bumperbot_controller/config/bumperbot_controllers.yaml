@@ -168,6 +168,8 @@ diff_drive_controller:
     #
     # These values describe the confidence in the wheel odometry estimate and
     # are consumed by robot_localization when fusing encoder and IMU data.
+    # Higher numbers mean higher uncertainty in that specific direction.
+    # Lower numbers mean the sensor data is very precise.
     pose_covariance_diagonal:
       [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
 

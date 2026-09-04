@@ -36,7 +36,7 @@ bool DifferentialDriveHandler::init(const hardware_interface::HardwareInfo& info
     // Parse integer parameters into signed temporary values before converting
     // them to uint16_t. This prevents negative values from wrapping.
     const int control_rate_hz =
-        getHwParam<int>(info.hardware_parameters, "wheels_control_rate_hz", 100, logger);
+        getHwParam<int>(info.hardware_parameters, "wheels_control_rate_hz", 200, logger);
     const int right_max_feedback_pwm =
         getHwParam<int>(info.hardware_parameters, "wheel_right_max_feedback_pwm", 50, logger);
     const int left_max_feedback_pwm =

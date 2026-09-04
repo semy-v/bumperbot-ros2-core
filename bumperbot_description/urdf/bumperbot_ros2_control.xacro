@@ -14,7 +14,7 @@
             <hardware>
                 <plugin>bumperbot_firmware/RobotSystemInterface</plugin>
                 <param name="port">/dev/ttyACM0</param>
-                <param name="wheels_control_rate_hz">100</param>
+                <param name="wheels_control_rate_hz">200</param>
                 <param name="wheels_min_velocity">2.0</param>
                 <param name="wheel_right_feedforward_ks_forward">17.34</param>
                 <param name="wheel_right_feedforward_ks_reverse">15.26</param>

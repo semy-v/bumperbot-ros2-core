@@ -29,7 +29,7 @@ class SerialTransceiverNode(LifecycleNode):
         self.declare_parameter("imu_calibration_ms", 2000)
 
         # Config params matching C++ DiffDriveConfigData
-        self.declare_parameter("control_rate_hz", 100)
+        self.declare_parameter("control_rate_hz", 200)
 
         self.declare_parameter("right_wheel.feedforward_ks_forward", 21.85)
         self.declare_parameter("right_wheel.feedforward_ks_reverse", 16.95)
