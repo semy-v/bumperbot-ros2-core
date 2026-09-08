@@ -3,6 +3,8 @@
 
 #include <cmath>
 #include <cstdint>
+#include <utility>
+#include <variant>
 
 #include <QuickPID.h>
 
@@ -38,6 +40,12 @@
  *      The final command is additionally prevented from changing sign relative
  *      to the requested target; direction reversal is handled only by Brake.
  *
+ *
+ * The controller uses a non-polymorphic std::variant state machine.
+ * State-local behavior and state-local data are owned by the corresponding
+ * state type. WheelController contains only data and operations shared across
+ * multiple states or required by the public API.
+ *
  * Control states:
  *
  *   Inactive
@@ -66,9 +74,167 @@
  *            sufficiently in Brake.
  */
 class WheelController {
- public:
-    enum class ControlState : uint8_t { Inactive, Stopped, Normal, Brake };
+    // -------------------------------------------------------------------------
+    // State transition requests.
+    // -------------------------------------------------------------------------
+    enum class TransitionRequest {
+        None,
+        ToInactive,
+        ToStopped,
+        ToNormal,
+        ToBrake,
+    };
 
+    // -------------------------------------------------------------------------
+    // Typed state-machine events.
+    // -------------------------------------------------------------------------
+    struct ActivateEvent {};
+
+    struct DeactivateEvent {};
+
+    struct TargetVelocityEvent {
+        bool stop;
+        bool reversal;
+    };
+
+    // -------------------------------------------------------------------------
+    // State base.
+    //
+    // The controller reference gives every concrete state direct access to the
+    // controller's private data and methods without virtual dispatch.
+    //
+    // Deactivation is common to every active state. InactiveState explicitly
+    // overrides it because deactivating an already inactive controller is a
+    // no-op and must preserve the target velocity stored while inactive.
+    // -------------------------------------------------------------------------
+    struct StateBase {
+        explicit StateBase(WheelController& controller) noexcept : controller(controller) {}
+
+        WheelController& controller;
+
+        TransitionRequest handle(const DeactivateEvent&) noexcept;
+    };
+
+    // -------------------------------------------------------------------------
+    // Inactive
+    // -------------------------------------------------------------------------
+    struct InactiveState final : StateBase {
+        using StateBase::StateBase;
+
+        // Deactivation while already inactive is a no-op. In particular, do not
+        // clear target_velocity_: the public API intentionally allows a target
+        // to be stored while inactive and used on the next activation.
+        TransitionRequest handle(const DeactivateEvent&) noexcept {
+            return TransitionRequest::None;
+        }
+
+        TransitionRequest handle(const ActivateEvent&) const noexcept {
+            return controller.target_velocity_ == 0.0f ? TransitionRequest::ToStopped
+                                                       : TransitionRequest::ToNormal;
+        }
+    };
+
+    // -------------------------------------------------------------------------
+    // Stopped
+    // -------------------------------------------------------------------------
+    struct StoppedState final : StateBase {
+        explicit StoppedState(WheelController& controller) noexcept : StateBase(controller) {
+            onEnter();
+        }
+
+        // Preserve the common DeactivateEvent handler from StateBase while
+        // adding StoppedState's TargetVelocityEvent overload.
+        using StateBase::handle;
+
+        TransitionRequest handle(const TargetVelocityEvent& event) const noexcept {
+            return event.stop ? TransitionRequest::None : TransitionRequest::ToNormal;
+        }
+
+     private:
+        inline void onEnter();
+    };
+
+    // -------------------------------------------------------------------------
+    // Normal
+    // -------------------------------------------------------------------------
+    struct NormalState final : StateBase {
+        explicit NormalState(WheelController& controller) noexcept : StateBase(controller) {
+            onEnter();
+        }
+
+        // Preserve the common DeactivateEvent handler from StateBase while
+        // adding NormalState's TargetVelocityEvent overload.
+        using StateBase::handle;
+
+        inline TransitionRequest update(uint32_t) noexcept;
+
+        TransitionRequest handle(const TargetVelocityEvent& event) noexcept {
+            if (event.stop || event.reversal) {
+                return TransitionRequest::ToBrake;
+            }
+
+            // Same-direction target changes remain in Normal and therefore
+            // preserve the existing PID history.
+            return TransitionRequest::None;
+        }
+
+     private:
+        void onEnter() noexcept { prepareMotionStart(); }
+        inline void prepareMotionStart() noexcept;
+
+        /**
+         * @brief Combines feed-forward and PID correction into the actuator command.
+         *
+         * The result is saturated to [-255,255] and constrained to the target
+         * direction so feedback cannot perform an uncoordinated direction reversal.
+         */
+        inline int calculateMotorSpeedPwm() const noexcept;
+    };
+
+    // -------------------------------------------------------------------------
+    // Brake
+    // -------------------------------------------------------------------------
+    struct BrakeState final : StateBase {
+        explicit BrakeState(WheelController& controller) noexcept
+            : StateBase(controller), total_period_ms_(0U), brake_pwm_(calculateBrakePwm()) {
+            onEnter();
+        }
+
+        // Brake has no special DeactivateEvent behavior, so inherit the common
+        // active-state cleanup from StateBase.
+        using StateBase::handle;
+
+        inline TransitionRequest update(uint32_t dt_ms) noexcept;
+
+     private:
+        // These fields exist only while BrakeState is the active alternative.
+        uint32_t total_period_ms_{};
+        const int brake_pwm_{};
+
+        void onEnter() noexcept { controller.resetPid(); }
+
+        /**
+         * @brief Returns the low-speed command used while decelerating.
+         *
+         * A small command in the currently reported motion direction asks the motor
+         * to decelerate toward a speed below its sustainable range while keeping the
+         * driver active enough to continue generating FG timing information.
+         *
+         * This is not a reverse-torque command: the sign intentionally follows the
+         * current motion direction. Direction reversal occurs only after Brake is
+         * declared complete.
+         */
+        int calculateBrakePwm() const noexcept {
+            constexpr float kBrakeDeadBandPwm{5.0f};
+            return static_cast<int>(std::copysign(kBrakeDeadBandPwm, controller.current_velocity_));
+        }
+
+        inline TransitionRequest finishBrake() noexcept;
+    };
+
+    using State = std::variant<InactiveState, StoppedState, NormalState, BrakeState>;
+
+ public:
     /**
      * @param direction_pin Motor CW/CCW command pin. The same signal is used by
      *        BLDC2430Encoder/PCNT to assign the logical velocity direction.
@@ -84,13 +250,6 @@ class WheelController {
                     uint8_t speed_state_pin,
                     float ticks_per_rev,
                     bool invert_logic = false);
-
-    ~WheelController() = default;
-
-    WheelController(const WheelController&) = delete;
-    WheelController(WheelController&&) = delete;
-    WheelController& operator=(const WheelController&) = delete;
-    WheelController& operator=(WheelController&&) = delete;
 
     /**
      * @brief Applies velocity-estimator, feed-forward, and PID configuration.
@@ -137,24 +296,21 @@ class WheelController {
      */
     void setTargetVelocity(float target);
 
-    /** Recomputes PID correction limits around the current feed-forward PWM. */
-    void updatePidOutputLimits();
-
-    /** Clears PID integral/output history and the stored correction term. */
-    void resetPid();
-
     /**
      * @return Controller's current filtered velocity estimate [rad/s].
      *
      * In Inactive and Stopped this intentionally reports zero rather than
      * continuously observing externally forced/coasting wheel motion.
      */
-    float getCurrentVelocity() const { return current_velocity_; }
+    float getCurrentVelocity() const noexcept { return current_velocity_; }
 
  private:
     static constexpr float kMaxPwm{255.0f};
     static constexpr float kMinPwm{-255.0f};
 
+    // -------------------------------------------------------------------------
+    // Shared hardware and controller data.
+    // -------------------------------------------------------------------------
     BLDC2430Motor motor_;
     BLDC2430Encoder encoder_;
     WheelVelocityEstimator velocity_estimator_;
@@ -162,8 +318,6 @@ class WheelController {
     // QuickPID reads current_velocity_ and target_velocity_ by pointer and writes
     // only the feedback correction term. Feed-forward is combined separately.
     QuickPID pid_;
-
-    ControlState state_{ControlState::Inactive};
 
     // Signed wheel angular velocities [rad/s].
     float target_velocity_{};
@@ -179,48 +333,63 @@ class WheelController {
     float feedforward_kv_{};
     float feedforward_pwm_{};
 
-    // Brake-state bookkeeping.
-    uint32_t brake_total_period_ms_{};
-    int brake_pwm_{};
+    // State machine. The current state is the active alternative of the variant.
+    State state_;
 
-    void updateNormal();
-    bool updateBrake(uint32_t dt_ms);
+    // Typed event dispatcher.
+    //
+    // State handlers only return a TransitionRequest. They never modify state_.
+    // processTransition() is called only after std::visit() has returned, which
+    // prevents destruction of the state object while its member function is on
+    // the call stack.
+    template <typename EventT>
+    void dispatch(EventT&& event) {
+        const auto transition = std::visit(
+            [&event](auto& state) {
+                if constexpr (requires { state.handle(std::forward<EventT>(event)); }) {
+                    return state.handle(std::forward<EventT>(event));
+                }
 
-    void prepareMotionStart();
-    void enterStopped();
-    void completeBraking();
-    void beginBraking();
+                return TransitionRequest::None;
+            },
+            state_);
+
+        processTransition(transition);
+    }
+
+    // Dedicated visitor for the periodic controller update. NormalState and
+    // BrakeState implement update(); InactiveState and StoppedState simply have
+    // no update() operation, so the visitor returns None for those alternatives.
+    void dispatchUpdate(uint32_t dt_ms) {
+        const auto transition = std::visit(
+            [dt_ms](auto& state) {
+                if constexpr (requires { state.update(dt_ms); }) {
+                    return state.update(dt_ms);
+                }
+
+                return TransitionRequest::None;
+            },
+            state_);
+
+        processTransition(transition);
+    }
+
+    // This is the only function allowed to modify state_. It is called after
+    // the current state's visitor invocation has completely returned.
+    void processTransition(TransitionRequest transition);
 
     // PWM zero disables motor drive. For the BLDC2430 driver this also prevents
     // relying on FG feedback during the fully-off interval.
-    void stopMotor() { motor_.setPwmSpeed(0); }
+    void stopMotor() noexcept { motor_.setPwmSpeed(0); }
 
-    /** Calculates directional feed-forward PWM from the latest target velocity. */
+    // Recomputes PID correction limits around the current feed-forward PWM.
+    void updatePidOutputLimits();
+
+    // Clears PID integral/output history and the stored correction term.
+    void resetPid();
+
+    // Calculates directional feed-forward PWM from the latest target velocity.
     float calculateFeedForwardPwm() const;
-
-    /**
-     * @brief Combines feed-forward and PID correction into the actuator command.
-     *
-     * The result is saturated to [-255,255] and constrained to the target
-     * direction so feedback cannot perform an uncoordinated direction reversal.
-     */
-    int calculateMotorSpeedPwm() const;
-
-    /**
-     * @brief Returns the low-speed command used while decelerating.
-     *
-     * A small command in the currently reported motion direction asks the motor
-     * to decelerate toward a speed below its sustainable range while keeping the
-     * driver active enough to continue generating FG timing information.
-     *
-     * This is not a reverse-torque command: the sign intentionally follows the
-     * current motion direction. Direction reversal occurs only after Brake is
-     * declared complete.
-     */
-    int calculateBrakePwm() const {
-        constexpr float kBrakeDeadBandPwm{5.0f};
-        return static_cast<int>(std::copysign(kBrakeDeadBandPwm, current_velocity_));
-    }
 };
 
 #endif  // WHEEL_CONTROLLER_HPP
