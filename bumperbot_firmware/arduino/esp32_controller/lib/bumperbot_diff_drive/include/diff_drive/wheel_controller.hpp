@@ -97,6 +97,10 @@ class WheelController {
         bool reversal;
     };
 
+    struct UpdateEvent {
+        uint32_t dt_ms;
+    };
+
     // -------------------------------------------------------------------------
     // State base.
     //
@@ -112,7 +116,7 @@ class WheelController {
 
         WheelController& controller;
 
-        TransitionRequest handle(const DeactivateEvent&) noexcept;
+        TransitionRequest handle(const DeactivateEvent&);
     };
 
     // -------------------------------------------------------------------------
@@ -124,11 +128,11 @@ class WheelController {
         // Deactivation while already inactive is a no-op. In particular, do not
         // clear target_velocity_: the public API intentionally allows a target
         // to be stored while inactive and used on the next activation.
-        TransitionRequest handle(const DeactivateEvent&) noexcept {
+        constexpr TransitionRequest handle(const DeactivateEvent&) const noexcept {
             return TransitionRequest::None;
         }
 
-        TransitionRequest handle(const ActivateEvent&) const noexcept {
+        constexpr TransitionRequest handle(const ActivateEvent&) const noexcept {
             return controller.target_velocity_ == 0.0f ? TransitionRequest::ToStopped
                                                        : TransitionRequest::ToNormal;
         }
@@ -138,15 +142,13 @@ class WheelController {
     // Stopped
     // -------------------------------------------------------------------------
     struct StoppedState final : StateBase {
-        explicit StoppedState(WheelController& controller) noexcept : StateBase(controller) {
-            onEnter();
-        }
+        explicit StoppedState(WheelController& controller) : StateBase(controller) { onEnter(); }
 
         // Preserve the common DeactivateEvent handler from StateBase while
         // adding StoppedState's TargetVelocityEvent overload.
         using StateBase::handle;
 
-        TransitionRequest handle(const TargetVelocityEvent& event) const noexcept {
+        constexpr TransitionRequest handle(const TargetVelocityEvent& event) const noexcept {
             return event.stop ? TransitionRequest::None : TransitionRequest::ToNormal;
         }
 
@@ -158,17 +160,15 @@ class WheelController {
     // Normal
     // -------------------------------------------------------------------------
     struct NormalState final : StateBase {
-        explicit NormalState(WheelController& controller) noexcept : StateBase(controller) {
-            onEnter();
-        }
+        explicit NormalState(WheelController& controller) : StateBase(controller) { onEnter(); }
 
         // Preserve the common DeactivateEvent handler from StateBase while
         // adding NormalState's TargetVelocityEvent overload.
         using StateBase::handle;
 
-        inline TransitionRequest update(uint32_t) noexcept;
+        inline TransitionRequest handle(const UpdateEvent&);
 
-        TransitionRequest handle(const TargetVelocityEvent& event) noexcept {
+        constexpr TransitionRequest handle(const TargetVelocityEvent& event) const noexcept {
             if (event.stop || event.reversal) {
                 return TransitionRequest::ToBrake;
             }
@@ -179,8 +179,9 @@ class WheelController {
         }
 
      private:
-        void onEnter() noexcept { prepareMotionStart(); }
-        inline void prepareMotionStart() noexcept;
+        void onEnter() { prepareMotionStart(); }
+
+        inline void prepareMotionStart();
 
         /**
          * @brief Combines feed-forward and PID correction into the actuator command.
@@ -188,14 +189,14 @@ class WheelController {
          * The result is saturated to [-255,255] and constrained to the target
          * direction so feedback cannot perform an uncoordinated direction reversal.
          */
-        inline int calculateMotorSpeedPwm() const noexcept;
+        constexpr int calculateMotorSpeedPwm() const noexcept;
     };
 
     // -------------------------------------------------------------------------
     // Brake
     // -------------------------------------------------------------------------
     struct BrakeState final : StateBase {
-        explicit BrakeState(WheelController& controller) noexcept
+        explicit BrakeState(WheelController& controller)
             : StateBase(controller), total_period_ms_(0U), brake_pwm_(calculateBrakePwm()) {
             onEnter();
         }
@@ -204,14 +205,14 @@ class WheelController {
         // active-state cleanup from StateBase.
         using StateBase::handle;
 
-        inline TransitionRequest update(uint32_t dt_ms) noexcept;
+        inline TransitionRequest handle(const UpdateEvent&);
 
      private:
         // These fields exist only while BrakeState is the active alternative.
         uint32_t total_period_ms_{};
         const int brake_pwm_{};
 
-        void onEnter() noexcept { controller.resetPid(); }
+        void onEnter() { controller.resetPid(); }
 
         /**
          * @brief Returns the low-speed command used while decelerating.
@@ -224,12 +225,12 @@ class WheelController {
          * current motion direction. Direction reversal occurs only after Brake is
          * declared complete.
          */
-        int calculateBrakePwm() const noexcept {
+        constexpr int calculateBrakePwm() const noexcept {
             constexpr float kBrakeDeadBandPwm{5.0f};
             return static_cast<int>(std::copysign(kBrakeDeadBandPwm, controller.current_velocity_));
         }
 
-        inline TransitionRequest finishBrake() noexcept;
+        inline TransitionRequest finishBrake();
     };
 
     using State = std::variant<InactiveState, StoppedState, NormalState, BrakeState>;
@@ -302,7 +303,7 @@ class WheelController {
      * In Inactive and Stopped this intentionally reports zero rather than
      * continuously observing externally forced/coasting wheel motion.
      */
-    float getCurrentVelocity() const noexcept { return current_velocity_; }
+    [[nodiscard]] constexpr float getCurrentVelocity() const noexcept { return current_velocity_; }
 
  private:
     static constexpr float kMaxPwm{255.0f};
@@ -357,30 +358,13 @@ class WheelController {
         processTransition(transition);
     }
 
-    // Dedicated visitor for the periodic controller update. NormalState and
-    // BrakeState implement update(); InactiveState and StoppedState simply have
-    // no update() operation, so the visitor returns None for those alternatives.
-    void dispatchUpdate(uint32_t dt_ms) {
-        const auto transition = std::visit(
-            [dt_ms](auto& state) {
-                if constexpr (requires { state.update(dt_ms); }) {
-                    return state.update(dt_ms);
-                }
-
-                return TransitionRequest::None;
-            },
-            state_);
-
-        processTransition(transition);
-    }
-
     // This is the only function allowed to modify state_. It is called after
     // the current state's visitor invocation has completely returned.
     void processTransition(TransitionRequest transition);
 
     // PWM zero disables motor drive. For the BLDC2430 driver this also prevents
     // relying on FG feedback during the fully-off interval.
-    void stopMotor() noexcept { motor_.setPwmSpeed(0); }
+    void stopMotor() { motor_.setPwmSpeed(0); }
 
     // Recomputes PID correction limits around the current feed-forward PWM.
     void updatePidOutputLimits();

@@ -7,7 +7,7 @@
 // StateBase
 // -----------------------------------------------------------------------------
 
-auto WheelController::StateBase::handle(const DeactivateEvent&) noexcept -> TransitionRequest {
+auto WheelController::StateBase::handle(const DeactivateEvent&) -> TransitionRequest {
     // Deactivation is an unconditional software stop. Clear the target and all
     // controller history before transitioning to Inactive so stale PID or
     // estimator state cannot affect a later activation.
@@ -40,7 +40,7 @@ void WheelController::StoppedState::onEnter() {
 // NormalState
 // -----------------------------------------------------------------------------
 
-void WheelController::NormalState::prepareMotionStart() noexcept {
+void WheelController::NormalState::prepareMotionStart() {
     // The first FG interval after a stop/reversal may contain time spent
     // stationary or braking. Synchronize the estimator to the latest edge and
     // discard that interval so the first reported sample represents the new
@@ -50,7 +50,7 @@ void WheelController::NormalState::prepareMotionStart() noexcept {
     controller.resetPid();
 }
 
-auto WheelController::NormalState::update(const uint32_t) noexcept -> TransitionRequest {
+auto WheelController::NormalState::handle(const UpdateEvent&) -> TransitionRequest {
     // Convert the latest complete FG falling-edge period into the filtered wheel
     // velocity estimate, then run PID and command feed-forward + PID PWM.
     controller.current_velocity_ =
@@ -62,7 +62,7 @@ auto WheelController::NormalState::update(const uint32_t) noexcept -> Transition
     return TransitionRequest::None;
 }
 
-int WheelController::NormalState::calculateMotorSpeedPwm() const noexcept {
+constexpr int WheelController::NormalState::calculateMotorSpeedPwm() const noexcept {
     // PID correction is limited relative to the feed-forward term, but clamp
     // once more at the physical actuator limits as a final safety boundary.
     float combined_pwm =
@@ -85,7 +85,7 @@ int WheelController::NormalState::calculateMotorSpeedPwm() const noexcept {
 // BrakeState
 // -----------------------------------------------------------------------------
 
-auto WheelController::BrakeState::update(const uint32_t dt_ms) noexcept -> TransitionRequest {
+auto WheelController::BrakeState::handle(const UpdateEvent& event) -> TransitionRequest {
     constexpr float kVelocityThresholdRadSec{2.0f};
     constexpr uint32_t kMaxBrakePeriodMs{50U};
 
@@ -104,7 +104,7 @@ auto WheelController::BrakeState::update(const uint32_t dt_ms) noexcept -> Trans
     // allowed after Brake completes and a new NormalState is entered.
     controller.motor_.setPwmSpeed(brake_pwm_);
 
-    total_period_ms_ += dt_ms;
+    total_period_ms_ += event.dt_ms;
     if (total_period_ms_ >= kMaxBrakePeriodMs) {
         return finishBrake();
     }
@@ -112,7 +112,7 @@ auto WheelController::BrakeState::update(const uint32_t dt_ms) noexcept -> Trans
     return TransitionRequest::None;
 }
 
-auto WheelController::BrakeState::finishBrake() noexcept -> TransitionRequest {
+auto WheelController::BrakeState::finishBrake() -> TransitionRequest {
     if (controller.target_velocity_ == 0.0f) {
         // StoppedState::onEnter() will keep the actuator stopped and clear the
         // reported velocity/feed-forward state.
@@ -190,7 +190,7 @@ void WheelController::setActive(const bool active) {
 void WheelController::update(const uint32_t dt_ms) {
     // State update handlers only return a transition request. The replacement
     // state is constructed after std::visit() has returned.
-    dispatchUpdate(dt_ms);
+    dispatch(UpdateEvent{dt_ms});
 }
 
 void WheelController::setTargetVelocity(float target) {
