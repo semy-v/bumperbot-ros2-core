@@ -41,8 +41,8 @@ The current architecture is split into four major layers:
 │                         ROS 2 Application                        │
 │                                                                  │
 │  Motion Control Server   Localization / EKF   Teleoperation      │
-│          │                       │                  │             │
-│          ▼                       ▼                  ▼             │
+│          │                       │                  │            │
+│          ▼                       ▼                  ▼            │
 │  FollowPath / Square     robot_localization      /cmd_vel        │
 └──────────────────────────────┬───────────────────────────────────┘
                                │
@@ -50,13 +50,13 @@ The current architecture is split into four major layers:
 ┌──────────────────────────────────────────────────────────────────┐
 │                    ROS 2 Control / Hardware                      │
 │                                                                  │
-│  controller_manager                                             │
+│  controller_manager                                              │
 │       │                                                          │
 │       └── bumperbot_firmware::RobotSystemInterface               │
 │              │              │                                    │
 │              │              └── IMU sensor handler               │
 │              │                                                   │
-│              └── Differential-drive handler                     │
+│              └── Differential-drive handler                      │
 └──────────────────────────────┬───────────────────────────────────┘
                                │
                                │ custom binary protocol over USB
@@ -72,7 +72,7 @@ The current architecture is split into four major layers:
 │        │      └── wheel velocity estimators                      │
 │        │                                                         │
 │        └── Sensor read task                                      │
-│               └── MPU6050                                       │
+│               └── MPU6050                                        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
