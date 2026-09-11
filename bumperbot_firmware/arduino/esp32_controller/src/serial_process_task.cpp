@@ -65,7 +65,7 @@ void sendSystemStateResponseIfDue(TaskSharedData& shared_data) {
 
     // Non-blocking snapshot of the latest wheel-control state. Queue length is
     // one and DiffDriveControlTask overwrites it every control period.
-    (void)xQueuePeek(shared_data.diff_drive_state_queue, &state.diff_drive.velocity, 0);
+    std::ignore = xQueuePeek(shared_data.diff_drive_state_queue, &state.diff_drive.velocity, 0);
 
     sendSerialMessage(state);
 }
@@ -84,7 +84,7 @@ void serialProcessTask(void* pvParameters) {
         // Process at most one complete frame per iteration. This gives a newly
         // parsed zero-delay command an immediate response check below instead
         // of draining an arbitrarily long serial backlog first.
-        (void)serial_processor.processNextSerialInputMessage();
+        std::ignore = serial_processor.processNextSerialInputMessage();
 
         // SensorReadTask places calibration results in a queue; SerialProcessTask
         // remains the sole Serial TX owner.

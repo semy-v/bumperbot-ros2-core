@@ -115,7 +115,7 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
     // Send IMU config message and wait for echo response
     constexpr size_t kImuCalibMs{2000};
     constexpr size_t kImuConfigAttempts{1};
-    constexpr size_t kImuConfigMs{kImuCalibMs + 1000};
+    constexpr size_t kImuConfigMs{kImuCalibMs * 3 + 100}; // add extra time for retries and serial transmission overhead
 
     RCLCPP_INFO(logger, "Initializing and Calibrating IMU sensor (%zu ms)...", kImuCalibMs);
     auto imu_resp = sendReceiveMessageData(imu_handler_.getDefaultConfig(kImuCalibMs),

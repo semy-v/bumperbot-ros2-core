@@ -10,6 +10,7 @@
 #include "imu/mpu6050_driver.hpp"
 #include "protocol/system_data.hpp"
 #include "task_shared_data.hpp"
+#include "utils.hpp"
 #include "wire_i2c_bus.hpp"
 
 namespace {
@@ -17,6 +18,7 @@ namespace {
 constexpr uint8_t kImuInterruptPin{A6};
 constexpr uint32_t kI2cClockHz{200'000U};
 constexpr uint16_t kCalibrationSampleIntervalMs{10U};
+constexpr uint8_t kMaxRetries{3u};
 
 TaskHandle_t g_sensor_read_task_handle{nullptr};
 
@@ -56,48 +58,48 @@ void publishImuState(TaskSharedData& shared_data, const std::optional<mpu6050::I
 }
 
 template <typename Imu>
-void configureImu(Imu& imu_sensor,
-                  TaskSharedData& shared_data,
-                  const ImuConfigData& request,
-                  bool& interrupt_attached,
-                  bool& imu_ready) {
-    imu_ready = false;
+bool configureImu(Imu& imu_sensor, TaskSharedData& shared_data, const ImuConfigData& request) {
+    bool imu_ready = false;
     xQueueReset(shared_data.imu_state_queue);
+    ImuConfigData response{.calibrate_period_ms = request.calibrate_period_ms, .result = false};
 
-    // Reconfiguration must not race DATA_RDY reads with calibration reads.
-    if (imu_sensor.isConnected()) {
-        (void)imu_sensor.disableInterrupts();
-    }
+    do {
+        if (request.calibrate_period_ms < kCalibrationSampleIntervalMs) {
+            break;
+        }
 
-    ImuConfigData response{
-        .calibrate_period_ms = request.calibrate_period_ms,
-        .result = false,
-    };
+        if (imu_sensor.isConnected()) {
+            // Reconfiguration must not race DATA_RDY reads with calibration reads.
+            if (!utils::retry<kMaxRetries>(&Imu::disableInterrupts, imu_sensor)) {
+                break;
+            }
+        } else {
+            if (!utils::retry<kMaxRetries>(&Imu::connect, imu_sensor)) {
+                break;
+            }
+        }
 
-    if (request.calibrate_period_ms >= kCalibrationSampleIntervalMs && imu_sensor.connect()) {
         const uint16_t sample_count =
             static_cast<uint16_t>(request.calibrate_period_ms / kCalibrationSampleIntervalMs);
         auto fn_delay = [](unsigned long ms) { vTaskDelay(pdMS_TO_TICKS(ms)); };
-        if (imu_sensor.calibrate(fn_delay, sample_count, kCalibrationSampleIntervalMs)
-                .has_value()) {
-            if (!interrupt_attached) {
-                pinMode(kImuInterruptPin, INPUT);
-                attachInterrupt(digitalPinToInterrupt(kImuInterruptPin), handleImuDataReady,
-                                RISING);
-                interrupt_attached = true;
-            }
-
-            response.result = imu_sensor.enableDataReadyInterrupt();
-            imu_ready = response.result;
-
-            if (!imu_ready) {
-                (void)imu_sensor.disableInterrupts();
-            }
+        if (!utils::retry<kMaxRetries>(&Imu::calibrate, imu_sensor, fn_delay, sample_count,
+                                       kCalibrationSampleIntervalMs)) {
+            break;
         }
-    }
 
-    // SensorReadTask never writes Serial. SerialProcessTask is the sole TX owner.
+        pinMode(kImuInterruptPin, INPUT);
+        attachInterrupt(digitalPinToInterrupt(kImuInterruptPin), handleImuDataReady, RISING);
+
+        if (!utils::retry<kMaxRetries>(&Imu::enableDataReadyInterrupt, imu_sensor)) {
+            detachInterrupt(digitalPinToInterrupt(kImuInterruptPin));
+            break;
+        }
+
+        response.result = imu_ready = true;
+    } while (false);
+
     xQueueOverwrite(shared_data.imu_config_response_queue, &response);
+    return imu_ready;
 }
 
 }  // namespace
@@ -119,14 +121,14 @@ void sensorReadTask(void* pvParameters) {
     for (;;) {
         // Both ImuConfig and DATA_RDY use this counting notification only as a
         // wake-up primitive. ImuConfig payload itself lives in a queue.
-        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        std::ignore = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         // Configuration always takes precedence. If a DATA_RDY event arrived
         // concurrently, it can be discarded because calibration invalidates
         // all pre-configuration samples anyway.
         ImuConfigData config{};
         if (xQueueReceive(shared_data.imu_config_queue, &config, 0) == pdPASS) {
-            configureImu(imu_sensor, shared_data, config, interrupt_attached, imu_ready);
+            imu_ready = configureImu(imu_sensor, shared_data, config);
             continue;
         }
 
@@ -136,12 +138,8 @@ void sensorReadTask(void* pvParameters) {
 
         // If multiple DATA_RDY notifications accumulated while this task was
         // delayed, read once. MPU6050 data registers contain the latest sample;
-        // try repeate reads only if the previous read attempt failed.
-        constexpr size_t kImuReadRetryCount{3u};
-        auto opt_imu_data = imu_sensor.readCalibrated();
-        for(size_t i{}; !opt_imu_data && i < kImuReadRetryCount; ++i) {
-            opt_imu_data = imu_sensor.readCalibrated();
-        }
-        publishImuState(shared_data, opt_imu_data);
+        // retry calibrated reads only if the previous read attempt failed.
+        publishImuState(shared_data, utils::retry<kMaxRetries>(
+                                         &decltype(imu_sensor)::readCalibrated, imu_sensor));
     }
 }
