@@ -14,7 +14,7 @@ void ImuSensorHandler::updateFromState(const ImuStateData& imu_data, const bool 
     imu_data_.angular_velocity_y = imu_data.angular_velocity_y;
 
     constexpr double kGyroZDeadbandRadPerSec{6.0e-3}; // Deadband threshold for angular velocity around Z-axis (rad/s)
-    if (robot_stationary && std::fabs(imu_data.angular_velocity_z) <= kGyroZDeadbandRadPerSec) {
+    if (robot_stationary && std::abs(imu_data.angular_velocity_z) <= kGyroZDeadbandRadPerSec) {
         imu_data_.angular_velocity_z = 0.0; // Set to zero if within deadband and robot is stationary
         return;
     }
