@@ -101,6 +101,22 @@ class MPU6050 {
         return calibration_;
     }
 
+    [[nodiscard]] const mpu6050::IMUCalibration& calibration() const noexcept {
+        return calibration_;
+    }
+
+    [[nodiscard]] mpu6050::IMUData applyCalibration(
+        const mpu6050::IMUData& data) const noexcept {
+        return mpu6050::IMUData{
+            .accelX = data.accelX - calibration_.accelX,
+            .accelY = data.accelY - calibration_.accelY,
+            .accelZ = data.accelZ - calibration_.accelZ,
+            .gyroX = data.gyroX - calibration_.gyroX,
+            .gyroY = data.gyroY - calibration_.gyroY,
+            .gyroZ = data.gyroZ - calibration_.gyroZ,
+        };
+    }
+
     std::optional<mpu6050::IMUData> read() {
         if (!isConnected()) {
             return std::nullopt;
@@ -128,15 +144,7 @@ class MPU6050 {
             return std::nullopt;
         }
 
-        const auto& data = *data_opt;
-        return mpu6050::IMUData{
-            .accelX = data.accelX - calibration_.accelX,
-            .accelY = data.accelY - calibration_.accelY,
-            .accelZ = data.accelZ - calibration_.accelZ,
-            .gyroX = data.gyroX - calibration_.gyroX,
-            .gyroY = data.gyroY - calibration_.gyroY,
-            .gyroZ = data.gyroZ - calibration_.gyroZ,
-        };
+        return applyCalibration(*data_opt);
     }
 
  private:
