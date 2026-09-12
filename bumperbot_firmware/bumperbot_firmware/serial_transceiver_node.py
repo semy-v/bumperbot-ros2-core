@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 
+import os
 import threading
 import serial
 import time
@@ -28,18 +29,30 @@ class SerialTransceiverNode(LifecycleNode):
         self.declare_parameter("imu_calibration_ms", 2000)
 
         # Config params matching C++ DiffDriveConfigData
-        self.declare_parameter("pid_rate", 50.0)
-        self.declare_parameter("r_wheel_kp", 15.5)
-        self.declare_parameter("r_wheel_ki", 39.0)
-        self.declare_parameter("r_wheel_kd", 0.0)
-        self.declare_parameter("r_wheel_deadband", 17)
-        self.declare_parameter("l_wheel_kp", 14.0)
-        self.declare_parameter("l_wheel_ki", 43.0)
-        self.declare_parameter("l_wheel_kd", 0.0)
-        self.declare_parameter("l_wheel_deadband", 18)
+        self.declare_parameter("control_rate_hz", 200)
+
+        self.declare_parameter("right_wheel.feedforward_ks_forward", 21.85)
+        self.declare_parameter("right_wheel.feedforward_ks_reverse", 16.95)
+        self.declare_parameter("right_wheel.feedforward_kv", 14.17)
+        self.declare_parameter("right_wheel.feedback_kp", 3.5)
+        self.declare_parameter("right_wheel.feedback_ki", 13.5)
+        self.declare_parameter("right_wheel.feedback_kd", 0.0)
+        self.declare_parameter("right_wheel.max_pid_correction", 50)
+
+        self.declare_parameter("left_wheel.feedforward_ks_forward", 21.79)
+        self.declare_parameter("left_wheel.feedforward_ks_reverse", 16.44)
+        self.declare_parameter("left_wheel.feedforward_kv", 13.77)
+        self.declare_parameter("left_wheel.feedback_kp", 3.0)
+        self.declare_parameter("left_wheel.feedback_ki", 12.0)
+        self.declare_parameter("left_wheel.feedback_kd", 0.0)
+        self.declare_parameter("left_wheel.max_pid_correction", 50)
 
         self.port_ = self.get_parameter("port").value
         self.baudrate_ = self.get_parameter("baudrate").value
+
+        # At this point all declared parameters already contain any overrides
+        # supplied through --params-file (serial_transceiver.yaml).
+        self.log_startup_parameters()
 
         # Instantiate Domain Managers
         self.diff_drive_manager_ = DiffDriveManager(self, self.send_serial_payload)
@@ -50,6 +63,40 @@ class SerialTransceiverNode(LifecycleNode):
         self.read_thread_ = None
         self.stop_read_thread_ = threading.Event()
         self.rx_buffer_ = bytearray()
+
+    def log_startup_parameters(self):
+        """Print every parameter consumed by serial_transceiver.yaml.
+
+        ROS 2 applies parameter-file overrides when each parameter is declared,
+        so get_parameter() here reports the effective value that this process
+        will use rather than merely the declaration default.
+        """
+        parameter_names = (
+            "port",
+            "baudrate",
+            "imu_frame_id",
+            "imu_calibration_ms",
+            "control_rate_hz",
+            "right_wheel.feedforward_ks_forward",
+            "right_wheel.feedforward_ks_reverse",
+            "right_wheel.feedforward_kv",
+            "right_wheel.feedback_kp",
+            "right_wheel.feedback_ki",
+            "right_wheel.feedback_kd",
+            "right_wheel.max_pid_correction",
+            "left_wheel.feedforward_ks_forward",
+            "left_wheel.feedforward_ks_reverse",
+            "left_wheel.feedforward_kv",
+            "left_wheel.feedback_kp",
+            "left_wheel.feedback_ki",
+            "left_wheel.feedback_kd",
+            "left_wheel.max_pid_correction",
+        )
+
+        logger = self.get_logger()
+        logger.info("Effective serial_transceiver parameters:")
+        for name in parameter_names:
+            logger.info(f"  {name}: {self.get_parameter(name).value}")
 
     def send_serial_payload(self, data: bytes):
         """Thread-safe serial transmission handler."""
@@ -100,17 +147,18 @@ class SerialTransceiverNode(LifecycleNode):
 
                 time.sleep(0.01)
 
+            if not self.imu_manager_.is_configured:
+                self.get_logger().warn("Timeout: IMU calibration/configuration failed.")
+
             # Detail which subsystem failed if timeout occurs
             if not self.diff_drive_manager_.is_configured:
                 self.get_logger().error(
                     "Timeout: DiffDrive hardware configuration failed."
                 )
-            if not self.imu_manager_.is_configured:
-                self.get_logger().error(
-                    "Timeout: IMU calibration/configuration failed."
-                )
+                # return failure only if diff drive not configured
+                return TransitionCallbackReturn.FAILURE
 
-            return TransitionCallbackReturn.FAILURE
+            return TransitionCallbackReturn.SUCCESS
 
         except Exception as e:
             self.get_logger().error(f"Failed to configure hardware interface: {e}")
@@ -125,8 +173,26 @@ class SerialTransceiverNode(LifecycleNode):
 
         self.stop_read_thread_.clear()
         self.rx_buffer_.clear()
-        self.read_thread_ = threading.Thread(target=self.receive_msg_loop, daemon=True)
+        self.read_thread_ = threading.Thread(
+            target=self.receive_msg_loop, name="serial_tx", daemon=True
+        )
         self.read_thread_.start()
+
+        try:
+            self.set_thread_realtime_priority(threading.get_native_id(), "SERIAL WRITE")
+        except (OSError, ValueError, RuntimeError) as e:
+            self.get_logger().warn(
+                f"Failed to configure SERIAL WRITE thread for SCHED_FIFO: {e}"
+            )
+
+        try:
+            self.set_thread_realtime_priority(
+                self.read_thread_.native_id, "SERIAL READ"
+            )
+        except (OSError, ValueError, RuntimeError) as e:
+            self.get_logger().warn(
+                f"Failed to configure SERIAL READ thread for SCHED_FIFO: {e}"
+            )
 
         self.get_logger().info("Transceiver node activated successfully.")
         return super().on_activate(state)
@@ -151,6 +217,39 @@ class SerialTransceiverNode(LifecycleNode):
             self.transceiver_.close()
         return TransitionCallbackReturn.SUCCESS
 
+    def set_thread_realtime_priority(self, thread_id, thread_name):
+        """Configure the thread as Linux SCHED_FIFO."""
+        if thread_id is None:
+            raise RuntimeError("{thread_name} thread has no native Linux thread ID")
+
+        priority = 50
+        min_priority = os.sched_get_priority_min(os.SCHED_FIFO)
+        max_priority = os.sched_get_priority_max(os.SCHED_FIFO)
+        if not min_priority <= priority <= max_priority:
+            raise ValueError(
+                f"thread_priority={priority} is outside the SCHED_FIFO "
+                f"range [{min_priority}, {max_priority}]"
+            )
+
+        os.sched_setscheduler(
+            thread_id,
+            os.SCHED_FIFO,
+            os.sched_param(priority),
+        )
+
+        actual_policy = os.sched_getscheduler(thread_id)
+        actual_priority = os.sched_getparam(thread_id).sched_priority
+
+        if actual_policy != os.SCHED_FIFO or actual_priority != priority:
+            raise RuntimeError(
+                "{thread_name} thread real-time scheduling verification failed"
+            )
+
+        self.get_logger().info(
+            f"{thread_name} thread configured: SCHED_FIFO priority {actual_priority}, "
+            f"TID {thread_id}"
+        )
+
     def parse_incoming_msg(self):
         if self.transceiver_ and self.transceiver_.in_waiting:
             self.rx_buffer_.extend(
@@ -163,6 +262,10 @@ class SerialTransceiverNode(LifecycleNode):
         while not self.stop_read_thread_.is_set():
             try:
                 parsed_msg = self.parse_incoming_msg()
+
+                if parsed_msg is None:
+                    time.sleep(0.001)
+                    continue
 
                 # Dispatch incoming composite state frame to respective managers
                 if isinstance(parsed_msg, SystemStateMsg):

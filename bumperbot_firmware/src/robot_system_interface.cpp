@@ -13,8 +13,9 @@
  * Arduino bootloader to settle.
  * - Phase 1 (IMU Calibration): Sends an initial `ImuConfigData` message specifying
  * the calibration period (2000ms) and blocks while waiting for an echo confirmation.
- * - Phase 2 (Wheel Config): Sends a `DiffDriveConfigData` message containing PID rate,
- * gains (kp, ki, kd), and PWM deadband limits for both wheels.
+ * - Phase 2 (Wheel Config): Sends a `DiffDriveConfigData` message containing the control
+ * rate plus direction-specific feed-forward Ks gains, shared Kv, feedback PID gains, and
+ * maximum feedback PWM for both wheels.
  * - Blocks and waits for the Arduino to echo the exact same config parameters back,
  * validating the MCU is running the correct parameters before continuing.
  *
@@ -53,7 +54,7 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 
 #include "bumperbot_firmware/hardware_interface_helpers.hpp"
-#include "system_data.hpp"
+#include "protocol/system_data.hpp"
 
 namespace bumperbot_firmware {
 
@@ -112,9 +113,10 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
     RCLCPP_INFO(logger, "Serial connection opened.");
 
     // Send IMU config message and wait for echo response
-    constexpr size_t kImuCalibMs{2000};
+    constexpr size_t kImuCalibMs{3000};
     constexpr size_t kImuConfigAttempts{1};
-    constexpr size_t kImuConfigMs{kImuCalibMs + 1000};
+    constexpr size_t kImuConfigMs{
+        kImuCalibMs * 3 + 100};  // add extra time for retries and serial transmission overhead
 
     RCLCPP_INFO(logger, "Initializing and Calibrating IMU sensor (%zu ms)...", kImuCalibMs);
     auto imu_resp = sendReceiveMessageData(imu_handler_.getDefaultConfig(kImuCalibMs),
@@ -137,13 +139,21 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
         return CallbackReturn::ERROR;
     }
     if (*cfg_resp != diff_drive_handler_.getConfig()) {
+        const auto& right = cfg_resp->right_wheel;
+        const auto& left = cfg_resp->left_wheel;
         RCLCPP_ERROR(logger,
-                     "Differential drive handshake mismatch: PID rate %.1f Hz | "
-                     "Right wheel config: { kp - %.1f, ki - %.1f, kd - %.1f } | "
-                     "Left wheel config: { kp - %.1f, ki - %.1f, kd - %.1f }",
-                     cfg_resp->pid_rate, cfg_resp->r_wheel.kp, cfg_resp->r_wheel.ki,
-                     cfg_resp->r_wheel.kd, cfg_resp->l_wheel.kp, cfg_resp->l_wheel.ki,
-                     cfg_resp->l_wheel.kd);
+                     "Differential drive handshake mismatch: control rate %u Hz | "
+                     "Right wheel: { Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
+                     "Kp=%.4f, Ki=%.4f, Kd=%.4f, max feedback=%u PWM } | "
+                     "Left wheel: { Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
+                     "Kp=%.4f, Ki=%.4f, Kd=%.4f, max feedback=%u PWM }",
+                     static_cast<unsigned>(cfg_resp->control_rate_hz), right.feedforward_ks_forward,
+                     right.feedforward_ks_reverse, right.feedforward_kv, right.feedback_kp,
+                     right.feedback_ki, right.feedback_kd,
+                     static_cast<unsigned>(right.max_feedback_pwm), left.feedforward_ks_forward,
+                     left.feedforward_ks_reverse, left.feedforward_kv, left.feedback_kp,
+                     left.feedback_ki, left.feedback_kd,
+                     static_cast<unsigned>(left.max_feedback_pwm));
         return CallbackReturn::ERROR;
     }
 
@@ -271,14 +281,15 @@ bool RobotSystemInterface::processSystemStateMessage() {
         return false;
     }
 
+    diff_drive_handler_.updateFromState(opt_state->diff_drive);
+
     const bool imu_ok = (opt_state->status != SystemStateFlags::ImuUnavailable);
     imu_handler_.setAvailability(imu_ok, logger);
 
     if (imu_ok) {
-        imu_handler_.updateFromState(opt_state->imu);
+        imu_handler_.updateFromState(opt_state->imu, diff_drive_handler_.isStationary());
     }
 
-    diff_drive_handler_.updateFromState(opt_state->diff_drive);
     velocity_read_error_count_ = 0;
     return true;
 }

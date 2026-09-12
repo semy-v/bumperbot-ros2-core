@@ -14,16 +14,22 @@
             <hardware>
                 <plugin>bumperbot_firmware/RobotSystemInterface</plugin>
                 <param name="port">/dev/ttyACM0</param>
-                <param name="wheels_min_velocity">0.8</param>
-                <param name="wheels_pid_rate">50</param>
-                <param name="wheel_right_kp">15.5</param>
-                <param name="wheel_right_ki">39.0</param>
-                <param name="wheel_right_kd">0.0</param>
-                <param name="wheel_right_pwm_deadband">17</param>
-                <param name="wheel_left_kp">14.0</param>
-                <param name="wheel_left_ki">43.0</param>
-                <param name="wheel_left_kd">0.0</param>
-                <param name="wheel_left_pwm_deadband">18</param>
+                <param name="wheels_control_rate_hz">200</param>
+                <param name="wheels_min_velocity">2.0</param>
+                <param name="wheel_right_feedforward_ks_forward">17.34</param>
+                <param name="wheel_right_feedforward_ks_reverse">15.26</param>
+                <param name="wheel_right_feedforward_kv">14.72</param>
+                <param name="wheel_right_feedback_kp">3.0</param>
+                <param name="wheel_right_feedback_ki">27.0</param>
+                <param name="wheel_right_feedback_kd">0.0</param>
+                <param name="wheel_right_max_feedback_pwm">50</param>
+                <param name="wheel_left_feedforward_ks_forward">17.86</param>
+                <param name="wheel_left_feedforward_ks_reverse">15.68</param>
+                <param name="wheel_left_feedforward_kv">14.26</param>
+                <param name="wheel_left_feedback_kp">3.0</param>
+                <param name="wheel_left_feedback_ki">25.0</param>
+                <param name="wheel_left_feedback_kd">0.0</param>
+                <param name="wheel_left_max_feedback_pwm">50</param>
             </hardware>
             <sensor name="imu_sensor">
                 <state_interface name="orientation.x"/>

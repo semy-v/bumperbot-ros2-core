@@ -19,6 +19,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(bumperbot_msgs REQUIRED)
 
 include_directories(include)
 
@@ -31,6 +32,7 @@ set(dependencies
   tf2
   tf2_ros
   tf2_geometry_msgs
+  bumperbot_msgs
   pluginlib
 )
 
@@ -48,6 +50,8 @@ ament_target_dependencies(motion_control_plugins ${plugin_dependencies})
 pluginlib_export_plugin_description_file(nav2_core motion_control_plugins.xml)
 
 add_executable(motion_control_server
+  src/control/square_roundtrip_control.cpp
+  src/control/follow_path_control.cpp
   src/motion_control_server.cpp
   src/motion_control_app.cpp
 )

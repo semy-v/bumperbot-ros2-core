@@ -9,7 +9,7 @@
 #include <hardware_interface/system_interface.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include "system_data.hpp"
+#include "protocol/system_data.hpp"
 
 namespace bumperbot_firmware {
 
@@ -25,7 +25,7 @@ class ImuSensorHandler {
 
     ImuSensorHandler() = default;
 
-    void updateFromState(const ImuStateData& imu_data);
+    void updateFromState(const ImuStateData& imu_data, const bool robot_stationary = false);
     void setAvailability(bool available, const rclcpp::Logger& logger);
     bool isAvailable() const { return data_available_; }
 

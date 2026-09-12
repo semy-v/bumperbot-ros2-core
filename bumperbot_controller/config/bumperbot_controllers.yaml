@@ -31,9 +31,6 @@ controller_manager:
     # This determines how often the Controller Manager invokes the update()
     # method of every active controller and broadcaster.
     #
-    # The selected 100 Hz update rate is higher than the wheel PID controller
-    # frequency (50 Hz), ensuring command processing and state publication
-    # remain responsive without overloading the CPU.
     update_rate: 100 # Hz
 
     # Differential drive motion controller.
@@ -123,9 +120,9 @@ imu_sensor_broadcaster:
     # The values were selected based on the expected noise characteristics of
     # the MPU6050 after calibration.
     static_covariance_angular_velocity:
-      [0.005, 0.0,   0.0,
-       0.0,   0.005, 0.0,
-       0.0,   0.0,   0.005]
+      [0.01, 0.0,   0.0,
+       0.0,   0.01, 0.0,
+       0.0,   0.0,   5.0e-3]
 
     # Linear acceleration covariance matrix ((m/s²)²).
     #
@@ -160,7 +157,7 @@ diff_drive_controller:
     # Frequency at which odometry and controller state are published.
     #
     # This matches the wheel encoder update rate produced by the firmware.
-    publish_rate: 50.0
+    publish_rate: 100.0
 
     # Position feedback from hardware is disabled.
     #
@@ -171,11 +168,13 @@ diff_drive_controller:
     #
     # These values describe the confidence in the wheel odometry estimate and
     # are consumed by robot_localization when fusing encoder and IMU data.
+    # Higher numbers mean higher uncertainty in that specific direction.
+    # Lower numbers mean the sensor data is very precise.
     pose_covariance_diagonal:
       [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
 
     twist_covariance_diagonal:
-      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
+      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 5.0e-2]
 
     # Physical robot dimensions.
     #

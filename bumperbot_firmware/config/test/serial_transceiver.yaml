@@ -4,12 +4,23 @@ serial_transceiver:
     baudrate: 115200
     imu_frame_id: "imu_link"
     imu_calibration_ms: 2000
-    pid_rate: 50.0
-    r_wheel_kp: 15.5
-    r_wheel_ki: 39.0
-    r_wheel_kd: 0.0
-    r_wheel_deadband: 17
-    l_wheel_kp: 14.0
-    l_wheel_ki: 43.0
-    l_wheel_kd: 0.0
-    l_wheel_deadband: 18
+
+    control_rate_hz: 200
+
+    left_wheel:
+      feedforward_ks_forward: 17.86
+      feedforward_ks_reverse: 15.68
+      feedforward_kv: 14.26
+      feedback_kp: 3.0
+      feedback_ki: 25.0
+      feedback_kd: 0.0
+      max_pid_correction: 50
+
+    right_wheel:
+      feedforward_ks_forward: 17.34
+      feedforward_ks_reverse: 15.26
+      feedforward_kv: 14.72
+      feedback_kp: 3.0
+      feedback_ki: 27.0
+      feedback_kd: 0.0
+      max_pid_correction: 50

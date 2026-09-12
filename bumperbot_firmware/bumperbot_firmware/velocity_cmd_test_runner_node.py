@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
 
 import os
 import yaml
@@ -19,10 +19,16 @@ class VelocityCmdTestRunnerNode(Node):
         self.publish_rate_ = self.get_parameter("publish_rate").value
         scenario_file_path = self.get_parameter("scenario_file").value
 
-        # Setup publisher
+        # Setup command publisher and measured-velocity subscriber
         self.pub_ = self.create_publisher(
             TwoWheelsAngularVelocity,
             "/bumperbot/wheels_velocity_in",
+            qos_profile_sensor_data,
+        )
+        self.velocity_state_sub_ = self.create_subscription(
+            TwoWheelsAngularVelocity,
+            "/bumperbot/wheels_velocity_out",
+            self.velocity_state_callback,
             qos_profile_sensor_data,
         )
 
@@ -32,6 +38,12 @@ class VelocityCmdTestRunnerNode(Node):
         self.step_elapsed_time_ = 0.0
         self.timer_period_ = 1.0 / self.publish_rate_
         self.timer_ = None
+
+        # Measured wheel velocity accumulation for the active scenario step
+        self.measured_right_velocity_sum_ = 0.0
+        self.measured_left_velocity_sum_ = 0.0
+        self.measured_velocity_sample_count_ = 0
+        self.measurement_active_ = False
 
         # Load and parse the test steps
         if not scenario_file_path:
@@ -87,6 +99,19 @@ class VelocityCmdTestRunnerNode(Node):
             self.get_logger().error(f"Failed to read/parse scenario configuration: {e}")
             return False
 
+    def velocity_state_callback(self, msg: TwoWheelsAngularVelocity):
+        if not self.measurement_active_:
+            return
+
+        self.measured_right_velocity_sum_ += msg.right_wheel_velocity
+        self.measured_left_velocity_sum_ += msg.left_wheel_velocity
+        self.measured_velocity_sample_count_ += 1
+
+    def reset_step_measurements(self):
+        self.measured_right_velocity_sum_ = 0.0
+        self.measured_left_velocity_sum_ = 0.0
+        self.measured_velocity_sample_count_ = 0
+
     def timer_callback(self):
         # Stop condition: check if we executed all steps
         if self.current_step_idx_ >= len(self.steps_):
@@ -108,6 +133,8 @@ class VelocityCmdTestRunnerNode(Node):
             self.get_logger().error(
                 f"Missing required parameter {e} in step index {self.current_step_idx_}. Skipping step."
             )
+            self.measurement_active_ = False
+            self.reset_step_measurements()
             self.current_step_idx_ += 1
             self.step_elapsed_time_ = 0.0
             return
@@ -120,15 +147,41 @@ class VelocityCmdTestRunnerNode(Node):
         # Publish to the serial receiver target
         self.pub_.publish(msg)
 
+        # Start collecting feedback only after this step has issued its first command.
+        self.measurement_active_ = True
+
         # Track elapsed step execution window
         self.step_elapsed_time_ += self.timer_period_
 
         # Transition validation
         if self.step_elapsed_time_ >= duration:
+            self.measurement_active_ = False
+
+            if self.measured_velocity_sample_count_ > 0:
+                avg_right_vel = (
+                    self.measured_right_velocity_sum_
+                    / self.measured_velocity_sample_count_
+                )
+                avg_left_vel = (
+                    self.measured_left_velocity_sum_
+                    / self.measured_velocity_sample_count_
+                )
+                measured_output = (
+                    f"Measured avg: R={avg_right_vel:.2f} rad/s, "
+                    f"L={avg_left_vel:.2f} rad/s "
+                    f"({self.measured_velocity_sample_count_} samples)"
+                )
+            else:
+                measured_output = "Measured avg: no feedback samples received"
+
             self.get_logger().info(
                 f"Finished step {self.current_step_idx_ + 1}/{len(self.steps_)} "
-                f"(R: {right_vel:.2f} rad/s, L: {left_vel:.2f} rad/s) for {duration}s"
+                f"for {duration}s | "
+                f"Target: R={right_vel:.2f} rad/s, L={left_vel:.2f} rad/s | "
+                f"{measured_output}"
             )
+
+            self.reset_step_measurements()
             self.current_step_idx_ += 1
             self.step_elapsed_time_ = 0.0
 

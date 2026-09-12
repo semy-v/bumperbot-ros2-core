@@ -1,0 +1,12 @@
+# Goal
+# Side length of the square in meters. Must be > 0.
+float64 side_length
+---
+# Result
+bool success
+string message
+---
+# Feedback
+# 1..4 identifies the vertex currently being approached.
+uint32 current_vertex
+geometry_msgs/PoseStamped current_pose

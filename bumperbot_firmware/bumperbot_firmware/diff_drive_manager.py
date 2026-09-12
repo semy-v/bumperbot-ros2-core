@@ -24,27 +24,29 @@ class DiffDriveManager:
         """Fetches parameters, transmits DiffDriveConfigMsg, and resets state."""
         self.is_configured = False
 
-        pid_rate = self.node.get_parameter("pid_rate").value
-        r_kp = self.node.get_parameter("r_wheel_kp").value
-        r_ki = self.node.get_parameter("r_wheel_ki").value
-        r_kd = self.node.get_parameter("r_wheel_kd").value
-        r_db = self.node.get_parameter("r_wheel_deadband").value
-
-        l_kp = self.node.get_parameter("l_wheel_kp").value
-        l_ki = self.node.get_parameter("l_wheel_ki").value
-        l_kd = self.node.get_parameter("l_wheel_kd").value
-        l_db = self.node.get_parameter("l_wheel_deadband").value
+        def parameter(name: str):
+            return self.node.get_parameter(name).value
 
         self._expected_config = DiffDriveConfigMsg(
-            pid_rate=pid_rate,
-            r_wheel_kp=r_kp,
-            r_wheel_ki=r_ki,
-            r_wheel_kd=r_kd,
-            r_wheel_pwm_deadband=r_db,
-            l_wheel_kp=l_kp,
-            l_wheel_ki=l_ki,
-            l_wheel_kd=l_kd,
-            l_wheel_pwm_deadband=l_db,
+            right_feedforward_ks_forward=parameter(
+                "right_wheel.feedforward_ks_forward"
+            ),
+            right_feedforward_ks_reverse=parameter(
+                "right_wheel.feedforward_ks_reverse"
+            ),
+            right_feedforward_kv=parameter("right_wheel.feedforward_kv"),
+            right_feedback_kp=parameter("right_wheel.feedback_kp"),
+            right_feedback_ki=parameter("right_wheel.feedback_ki"),
+            right_feedback_kd=parameter("right_wheel.feedback_kd"),
+            right_max_pid_correction=parameter("right_wheel.max_pid_correction"),
+            left_feedforward_ks_forward=parameter("left_wheel.feedforward_ks_forward"),
+            left_feedforward_ks_reverse=parameter("left_wheel.feedforward_ks_reverse"),
+            left_feedforward_kv=parameter("left_wheel.feedforward_kv"),
+            left_feedback_kp=parameter("left_wheel.feedback_kp"),
+            left_feedback_ki=parameter("left_wheel.feedback_ki"),
+            left_feedback_kd=parameter("left_wheel.feedback_kd"),
+            left_max_pid_correction=parameter("left_wheel.max_pid_correction"),
+            control_rate_hz=parameter("control_rate_hz"),
         )
 
         self.node.get_logger().info("Transmitting DiffDriveConfigMsg...")
@@ -58,17 +60,63 @@ class DiffDriveManager:
         if not self._expected_config:
             return False
 
-        # Verify mirrored parameters match what we transmitted
+        expected = self._expected_config
+
+        def floats_match(actual: float, configured: float) -> bool:
+            return abs(actual - configured) < 1e-3
+
         matches = (
-            abs(msg.pid_rate - self._expected_config.pid_rate) < 1e-3
-            and abs(msg.r_wheel_kp - self._expected_config.r_wheel_kp) < 1e-3
-            and abs(msg.r_wheel_ki - self._expected_config.r_wheel_ki) < 1e-3
-            and abs(msg.r_wheel_kd - self._expected_config.r_wheel_kd) < 1e-3
-            and msg.r_wheel_pwm_deadband == self._expected_config.r_wheel_pwm_deadband
-            and abs(msg.l_wheel_kp - self._expected_config.l_wheel_kp) < 1e-3
-            and abs(msg.l_wheel_ki - self._expected_config.l_wheel_ki) < 1e-3
-            and abs(msg.l_wheel_kd - self._expected_config.l_wheel_kd) < 1e-3
-            and msg.l_wheel_pwm_deadband == self._expected_config.l_wheel_pwm_deadband
+            floats_match(
+                msg.right_feedforward_ks_forward,
+                expected.right_feedforward_ks_forward,
+            )
+            and floats_match(
+                msg.right_feedforward_ks_reverse,
+                expected.right_feedforward_ks_reverse,
+            )
+            and floats_match(
+                msg.right_feedforward_kv,
+                expected.right_feedforward_kv,
+            )
+            and floats_match(
+                msg.right_feedback_kp,
+                expected.right_feedback_kp,
+            )
+            and floats_match(
+                msg.right_feedback_ki,
+                expected.right_feedback_ki,
+            )
+            and floats_match(
+                msg.right_feedback_kd,
+                expected.right_feedback_kd,
+            )
+            and msg.right_max_pid_correction == expected.right_max_pid_correction
+            and floats_match(
+                msg.left_feedforward_ks_forward,
+                expected.left_feedforward_ks_forward,
+            )
+            and floats_match(
+                msg.left_feedforward_ks_reverse,
+                expected.left_feedforward_ks_reverse,
+            )
+            and floats_match(
+                msg.left_feedforward_kv,
+                expected.left_feedforward_kv,
+            )
+            and floats_match(
+                msg.left_feedback_kp,
+                expected.left_feedback_kp,
+            )
+            and floats_match(
+                msg.left_feedback_ki,
+                expected.left_feedback_ki,
+            )
+            and floats_match(
+                msg.left_feedback_kd,
+                expected.left_feedback_kd,
+            )
+            and msg.left_max_pid_correction == expected.left_max_pid_correction
+            and msg.control_rate_hz == expected.control_rate_hz
         )
 
         if matches:
@@ -78,7 +126,8 @@ class DiffDriveManager:
             )
         else:
             self.node.get_logger().error(
-                "Differential drive parameter mismatch in hardware echo!"
+                "Differential drive parameter mismatch in hardware echo! "
+                f"expected={expected}, received={msg}"
             )
 
         return self.is_configured
