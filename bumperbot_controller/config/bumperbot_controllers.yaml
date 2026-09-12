@@ -122,7 +122,7 @@ imu_sensor_broadcaster:
     static_covariance_angular_velocity:
       [0.01, 0.0,   0.0,
        0.0,   0.01, 0.0,
-       0.0,   0.0,   0.01]
+       0.0,   0.0,   5.0e-3]
 
     # Linear acceleration covariance matrix ((m/s²)²).
     #
@@ -174,7 +174,7 @@ diff_drive_controller:
       [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 0.01]
 
     twist_covariance_diagonal:
-      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-1]
+      [0.001, 0.001, 1.0e-3, 1.0e-3, 1.0e-3, 5.0e-2]
 
     # Physical robot dimensions.
     #

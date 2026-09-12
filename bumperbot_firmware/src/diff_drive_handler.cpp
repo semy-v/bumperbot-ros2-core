@@ -157,9 +157,7 @@ DiffDriveCommandData DifferentialDriveHandler::getCommandData(uint8_t response_d
             },
         .response_delay_ms = response_delay_ms};
 
-    // A tiny epsilon threshold to account for floating-point noise
-    constexpr double kZeroThreshold = 1e-4;
-    auto clamp_vel = [this, kZeroThreshold](float& vel) {
+    auto clamp_vel = [this](float& vel) {
         if (std::abs(vel) <= kZeroThreshold) {
             // Force a clean stop if the command is microscopic noise
             vel = 0.0f;

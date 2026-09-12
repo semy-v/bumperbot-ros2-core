@@ -30,6 +30,11 @@ class DifferentialDriveHandler {
     const DiffDriveConfigData& getConfig() const { return config_data_; }
     double getMinVelocity() const { return wheels_min_velocity_; }
 
+    constexpr bool isStationary() const {
+        return std::abs(interface_data_[kLeftWheelIndex].velocity_state) < kZeroThreshold &&
+               std::abs(interface_data_[kRightWheelIndex].velocity_state) < kZeroThreshold;
+    }
+
  private:
     struct WheelData {
         double velocity_command{0.0};
@@ -44,6 +49,7 @@ class DifferentialDriveHandler {
                                                                  "wheel_right_joint"};
     static constexpr size_t kLeftWheelIndex{0};
     static constexpr size_t kRightWheelIndex{1};
+    static constexpr double kZeroThreshold{1e-4}; // A tiny epsilon threshold to account for floating-point noise
 
     double wheels_min_velocity_{0.0};
     DiffDriveConfigData config_data_{};

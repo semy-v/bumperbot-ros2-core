@@ -5,13 +5,21 @@
 
 namespace bumperbot_firmware {
 
-void ImuSensorHandler::updateFromState(const ImuStateData& imu_data) {
-    imu_data_.angular_velocity_x = imu_data.angular_velocity_x;
-    imu_data_.angular_velocity_y = imu_data.angular_velocity_y;
-    imu_data_.angular_velocity_z = imu_data.angular_velocity_z;
+void ImuSensorHandler::updateFromState(const ImuStateData& imu_data, const bool robot_stationary) {
     imu_data_.linear_acceleration_x = imu_data.linear_acceleration_x;
     imu_data_.linear_acceleration_y = imu_data.linear_acceleration_y;
     imu_data_.linear_acceleration_z = imu_data.linear_acceleration_z;
+
+    imu_data_.angular_velocity_x = imu_data.angular_velocity_x;
+    imu_data_.angular_velocity_y = imu_data.angular_velocity_y;
+
+    constexpr double kGyroZDeadbandRadPerSec{6.0e-3}; // Deadband threshold for angular velocity around Z-axis (rad/s)
+    if (robot_stationary && std::fabs(imu_data.angular_velocity_z) <= kGyroZDeadbandRadPerSec) {
+        imu_data_.angular_velocity_z = 0.0; // Set to zero if within deadband and robot is stationary
+        return;
+    }
+
+    imu_data_.angular_velocity_z = imu_data.angular_velocity_z;
 }
 
 void ImuSensorHandler::setAvailability(bool available, const rclcpp::Logger& logger) {
