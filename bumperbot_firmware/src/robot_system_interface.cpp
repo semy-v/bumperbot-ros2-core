@@ -113,9 +113,10 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
     RCLCPP_INFO(logger, "Serial connection opened.");
 
     // Send IMU config message and wait for echo response
-    constexpr size_t kImuCalibMs{2000};
+    constexpr size_t kImuCalibMs{3000};
     constexpr size_t kImuConfigAttempts{1};
-    constexpr size_t kImuConfigMs{kImuCalibMs * 3 + 100}; // add extra time for retries and serial transmission overhead
+    constexpr size_t kImuConfigMs{
+        kImuCalibMs * 3 + 100};  // add extra time for retries and serial transmission overhead
 
     RCLCPP_INFO(logger, "Initializing and Calibrating IMU sensor (%zu ms)...", kImuCalibMs);
     auto imu_resp = sendReceiveMessageData(imu_handler_.getDefaultConfig(kImuCalibMs),
@@ -146,12 +147,12 @@ CallbackReturn RobotSystemInterface::on_configure(const rclcpp_lifecycle::State&
                      "Kp=%.4f, Ki=%.4f, Kd=%.4f, max feedback=%u PWM } | "
                      "Left wheel: { Ks_fwd=%.4f, Ks_rev=%.4f, Kv=%.4f, "
                      "Kp=%.4f, Ki=%.4f, Kd=%.4f, max feedback=%u PWM }",
-                     static_cast<unsigned>(cfg_resp->control_rate_hz),
-                     right.feedforward_ks_forward, right.feedforward_ks_reverse,
-                     right.feedforward_kv, right.feedback_kp, right.feedback_ki,
-                     right.feedback_kd, static_cast<unsigned>(right.max_feedback_pwm),
-                     left.feedforward_ks_forward, left.feedforward_ks_reverse, left.feedforward_kv,
-                     left.feedback_kp, left.feedback_ki, left.feedback_kd,
+                     static_cast<unsigned>(cfg_resp->control_rate_hz), right.feedforward_ks_forward,
+                     right.feedforward_ks_reverse, right.feedforward_kv, right.feedback_kp,
+                     right.feedback_ki, right.feedback_kd,
+                     static_cast<unsigned>(right.max_feedback_pwm), left.feedforward_ks_forward,
+                     left.feedforward_ks_reverse, left.feedforward_kv, left.feedback_kp,
+                     left.feedback_ki, left.feedback_kd,
                      static_cast<unsigned>(left.max_feedback_pwm));
         return CallbackReturn::ERROR;
     }
@@ -280,14 +281,15 @@ bool RobotSystemInterface::processSystemStateMessage() {
         return false;
     }
 
+    diff_drive_handler_.updateFromState(opt_state->diff_drive);
+
     const bool imu_ok = (opt_state->status != SystemStateFlags::ImuUnavailable);
     imu_handler_.setAvailability(imu_ok, logger);
 
     if (imu_ok) {
-        imu_handler_.updateFromState(opt_state->imu);
+        imu_handler_.updateFromState(opt_state->imu, diff_drive_handler_.isStationary());
     }
 
-    diff_drive_handler_.updateFromState(opt_state->diff_drive);
     velocity_read_error_count_ = 0;
     return true;
 }
