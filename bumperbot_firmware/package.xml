@@ -20,7 +20,6 @@
 
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>python3-serial</exec_depend>
-  <exec_depend>python3-smbus</exec_depend>
   <exec_depend>bumperbot_description</exec_depend>
   <exec_depend>bumperbot_msgs</exec_depend>
 
