@@ -247,6 +247,3 @@ diff_drive_controller:
         has_acceleration_limits: true
         max_acceleration: 5.0  # rad/s²
         min_acceleration: -5.0 # rad/s²
-
-        # Maximum allowed rate of angular acceleration change.
-        max_jerk: 2.5          # rad/s³
